@@ -1,7 +1,7 @@
 {
   "name": "anything-office",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Anything Office — The Unified Desktop Workspace for Docs, Sheets, Slides & PDF",
   "main": "electron/main.cjs",
   "type": "module",
