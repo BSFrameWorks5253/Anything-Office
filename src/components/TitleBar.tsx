@@ -47,6 +47,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 }) => {
   const getAppPill = () => {
     switch (appMode) {
+      case 'home':
+        return { name: 'Home Hub', color: 'bg-violet-600' };
       case 'docs':
         return { name: 'Word', color: 'bg-blue-600' };
       case 'sheets':

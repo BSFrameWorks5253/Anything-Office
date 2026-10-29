@@ -1,6 +1,18 @@
 import type { PdfAnnotation } from './annotations';
 
-export type AppMode = 'docs' | 'sheets' | 'slides' | 'pdf' | 'evidence';
+export type AppMode = 'home' | 'docs' | 'sheets' | 'slides' | 'pdf' | 'evidence';
+
+export interface RecentDocumentItem {
+  id: string;
+  name: string;
+  type: 'docs' | 'sheets' | 'slides' | 'pdf' | 'anything';
+  lastModified: number;
+  size: string;
+  pinned: boolean;
+  source: 'local' | 'template' | 'sample';
+  description?: string;
+  projectData?: Partial<AnythingProject>;
+}
 
 export interface PdfDocumentData {
   title: string;

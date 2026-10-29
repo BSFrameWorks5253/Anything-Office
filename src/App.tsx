@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type {
   AppMode,
   AnythingProject,
@@ -7,12 +7,14 @@ import type {
   SpreadsheetData,
   PresentationData,
   PdfDocumentData,
+  RecentDocumentItem,
 } from './types/office';
 import { DEFAULT_PROJECT } from './engine/sampleProjects';
 import { FormulaEngine } from './engine/formulaEngine';
 import { DocumentImporter } from './engine/documentImporter';
 import { TitleBar } from './components/TitleBar';
 import { AppRail } from './components/AppRail';
+import { HomeHub } from './components/HomeHub';
 import { Ribbon } from './components/Ribbon';
 import { DocsEditor } from './components/DocsEditor';
 import { SheetsEditor } from './components/SheetsEditor';
@@ -22,14 +24,57 @@ import { EvidenceModal } from './components/EvidenceModal';
 import { TemplateGalleryModal } from './components/TemplateGalleryModal';
 import { Check, UploadCloud } from 'lucide-react';
 
+const DEFAULT_RECENTS: RecentDocumentItem[] = [
+  {
+    id: 'sample-doc-1',
+    name: 'Executive Product Strategy 2026.docx',
+    type: 'docs',
+    lastModified: Date.now() - 1000 * 60 * 24, // 24m ago
+    size: '169 words · A4',
+    pinned: true,
+    source: 'sample',
+    description: 'Unified document processing and OOXML architecture',
+  },
+  {
+    id: 'sample-sheet-1',
+    name: 'Q3 Global Financial Model & Cash Flow.xlsx',
+    type: 'sheets',
+    lastModified: Date.now() - 1000 * 60 * 120, // 2h ago
+    size: '100 rows × 26 cols',
+    pinned: true,
+    source: 'sample',
+    description: 'Dynamic reactive formula engine with Net Cash calculations',
+  },
+  {
+    id: 'sample-slide-1',
+    name: 'Anything Ecosystem Keynote 2026.pptx',
+    type: 'slides',
+    lastModified: Date.now() - 1000 * 60 * 60 * 5, // 5h ago
+    size: '3 slides · 16:9 4K',
+    pinned: false,
+    source: 'sample',
+    description: 'Corporate pitch deck with metric highlight layout',
+  },
+  {
+    id: 'sample-pdf-1',
+    name: 'Anything Office Architecture & Technical Whitepaper.pdf',
+    type: 'pdf',
+    lastModified: Date.now() - 1000 * 60 * 60 * 24, // 1d ago
+    size: '3 pages · 2.4 MB',
+    pinned: false,
+    source: 'sample',
+    description: 'Acrobat annotation suite and ECMA-376 specification',
+  },
+];
+
 export const App: React.FC = () => {
   // Theme state
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
-  // Active module mode: 'docs' | 'sheets' | 'slides'
-  const [appMode, setAppMode] = useState<AppMode>('docs');
+  // Active module mode: 'home' | 'docs' | 'sheets' | 'slides' | 'pdf'
+  const [appMode, setAppMode] = useState<AppMode>('home');
 
   // Presentation fullscreen state
   const [isPresenting, setIsPresenting] = useState<boolean>(false);
@@ -39,6 +84,22 @@ export const App: React.FC = () => {
 
   // AutoSave state
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(true);
+
+  // Global hidden file input ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Recent Documents list state (persisted to localStorage)
+  const [recentItems, setRecentItems] = useState<RecentDocumentItem[]>(() => {
+    const saved = localStorage.getItem('anything_office_recents');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse recents', e);
+      }
+    }
+    return DEFAULT_RECENTS;
+  });
 
   // Active Project State (Docs + Sheets + Slides)
   const [project, setProject] = useState<AnythingProject>(() => {
@@ -104,6 +165,69 @@ export const App: React.FC = () => {
     }
   };
 
+  // Format byte size to readable string
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // Record document into Recents and persist to localStorage
+  const recordRecentDocument = (
+    name: string,
+    type: 'docs' | 'sheets' | 'slides' | 'pdf' | 'anything',
+    size: string,
+    projectData?: Partial<AnythingProject>
+  ) => {
+    setRecentItems((prev) => {
+      const filtered = prev.filter((item) => item.name !== name);
+      const newItem: RecentDocumentItem = {
+        id: `rec-${Date.now()}`,
+        name,
+        type,
+        lastModified: Date.now(),
+        size,
+        pinned: false,
+        source: 'local',
+        projectData,
+      };
+      const updated = [newItem, ...filtered].slice(0, 30);
+      localStorage.setItem('anything_office_recents', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleTogglePinRecent = (id: string) => {
+    setRecentItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, pinned: !item.pinned } : item
+      );
+      localStorage.setItem('anything_office_recents', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleDeleteRecent = (id: string) => {
+    setRecentItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      localStorage.setItem('anything_office_recents', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleSelectRecentItem = (item: RecentDocumentItem) => {
+    if (item.projectData) {
+      pushState({ ...project, ...item.projectData });
+    }
+    if (item.type === 'docs' || item.type === 'sheets' || item.type === 'slides' || item.type === 'pdf') {
+      setAppMode(item.type);
+    } else {
+      setAppMode('docs');
+    }
+    setSaveToast(`Opened "${item.name}"`);
+    setTimeout(() => setSaveToast(null), 2500);
+  };
+
   const handleSave = () => {
     localStorage.setItem('anything_office_project', JSON.stringify(project));
     setSaveToast('Saved changes to Anything Cloud');
@@ -126,7 +250,13 @@ export const App: React.FC = () => {
 
       if (result.mode !== 'all') {
         setAppMode(result.mode);
+      } else {
+        setAppMode('docs');
       }
+
+      // Add to Recents list
+      const detectedType = result.mode === 'all' ? 'docs' : result.mode;
+      recordRecentDocument(file.name, detectedType, formatFileSize(file.size));
 
       setSaveToast(`Opened "${file.name}" (${result.detectedFormat})`);
       setTimeout(() => setSaveToast(null), 4000);
@@ -427,99 +557,131 @@ export const App: React.FC = () => {
           darkMode={darkMode}
         />
 
-        {/* Main Workspace: Microsoft Fluent Ribbon + Canvas */}
+        {/* Main Workspace: Microsoft Fluent Ribbon + Canvas OR Home Hub */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Ribbon
-            appMode={appMode}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            canUndo={historyIndex > 0}
-            canRedo={historyIndex < history.length - 1}
-            onSave={handleSave}
-            onOpenFile={handleOpenFile}
-            onExport={handleExport}
-            onOpenTemplates={() => setShowTemplates(true)}
-            darkMode={darkMode}
-            activeFormat={activeFormat}
-            onFormatChange={(fmt) => setActiveFormat({ ...activeFormat, ...fmt })}
-            onInsertDocParagraph={handleInsertDocParagraph}
-            onAddSheetRow={handleAddSheetRow}
-            onAddSheetCol={handleAddSheetCol}
-            onAddSlide={handleAddSlide}
-            onDeleteSlide={handleDeleteSlide}
-            onStartSlideshow={() => setIsPresenting(true)}
-          />
-
-          {/* Main Canvas Stage */}
-          <div className="flex-1 overflow-hidden relative">
-          {appMode === 'docs' && (
-            <DocsEditor
-              data={project.docs}
-              onChange={(updatedDocs: DocumentData) =>
-                pushState({ ...project, docs: updatedDocs })
-              }
+          {appMode === 'home' ? (
+            <HomeHub
+              onOpenAppMode={(mode) => setAppMode(mode)}
+              onOpenProject={(p) => pushState(p)}
+              onOpenFileClick={() => fileInputRef.current?.click()}
+              onOpenEvidence={() => setShowEvidence(true)}
+              onOpenTemplates={() => setShowTemplates(true)}
+              recentItems={recentItems}
+              onTogglePinRecent={handleTogglePinRecent}
+              onDeleteRecent={handleDeleteRecent}
+              onSelectRecentItem={handleSelectRecentItem}
               darkMode={darkMode}
             />
-          )}
+          ) : (
+            <>
+              <Ribbon
+                appMode={appMode}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={historyIndex > 0}
+                canRedo={historyIndex < history.length - 1}
+                onSave={handleSave}
+                onOpenFile={handleOpenFile}
+                onExport={handleExport}
+                onOpenTemplates={() => setShowTemplates(true)}
+                darkMode={darkMode}
+                activeFormat={activeFormat}
+                onFormatChange={(fmt) => setActiveFormat({ ...activeFormat, ...fmt })}
+                onInsertDocParagraph={handleInsertDocParagraph}
+                onAddSheetRow={handleAddSheetRow}
+                onAddSheetCol={handleAddSheetCol}
+                onAddSlide={handleAddSlide}
+                onDeleteSlide={handleDeleteSlide}
+                onStartSlideshow={() => setIsPresenting(true)}
+              />
 
-          {appMode === 'sheets' && (
-            <SheetsEditor
-              data={project.sheets}
-              onChange={(updatedSheets: SpreadsheetData) =>
-                pushState({ ...project, sheets: updatedSheets })
-              }
-              darkMode={darkMode}
-              activeFormat={activeFormat}
-            />
-          )}
+              {/* Main Canvas Stage */}
+              <div className="flex-1 overflow-hidden relative">
+                {appMode === 'docs' && (
+                  <DocsEditor
+                    data={project.docs}
+                    onChange={(updatedDocs: DocumentData) =>
+                      pushState({ ...project, docs: updatedDocs })
+                    }
+                    darkMode={darkMode}
+                  />
+                )}
 
-          {appMode === 'slides' && (
-            <SlidesEditor
-              data={project.slides}
-              onChange={(updatedSlides: PresentationData) =>
-                pushState({ ...project, slides: updatedSlides })
-              }
-              darkMode={darkMode}
-              isPresenting={isPresenting}
-              setIsPresenting={setIsPresenting}
-            />
-          )}
+                {appMode === 'sheets' && (
+                  <SheetsEditor
+                    data={project.sheets}
+                    onChange={(updatedSheets: SpreadsheetData) =>
+                      pushState({ ...project, sheets: updatedSheets })
+                    }
+                    darkMode={darkMode}
+                    activeFormat={activeFormat}
+                  />
+                )}
 
-          {appMode === 'pdf' && (
-            <PdfViewer
-              pdfData={
-                project.pdf || {
-                  title: 'Anything Office Architecture & Technical Whitepaper.pdf',
-                  totalPages: 3,
-                  currentPage: 1,
-                  zoom: 100,
-                  rotation: 0,
-                  extractedText:
-                    'Anything Office Architecture: Unifying ECMA-376 OOXML processing, DAG formula evaluation, and DrawingML scene graphs into a sub-second desktop workspace.',
-                }
-              }
-              onUpdatePdf={(updatedPdf: Partial<PdfDocumentData>) => {
-                const current = project.pdf || {
-                  title: 'Document.pdf',
-                  totalPages: 1,
-                  currentPage: 1,
-                  zoom: 100,
-                  rotation: 0,
-                };
-                pushState({ ...project, pdf: { ...current, ...updatedPdf } });
-              }}
-              onReflowToDocs={(reflowedDoc: DocumentData) => {
-                pushState({ ...project, docs: reflowedDoc });
-                setAppMode('docs');
-                setSaveToast('PDF Reflowed to Editable Word Document!');
-                setTimeout(() => setSaveToast(null), 3500);
-              }}
-              darkMode={darkMode}
-            />
+                {appMode === 'slides' && (
+                  <SlidesEditor
+                    data={project.slides}
+                    onChange={(updatedSlides: PresentationData) =>
+                      pushState({ ...project, slides: updatedSlides })
+                    }
+                    darkMode={darkMode}
+                    isPresenting={isPresenting}
+                    setIsPresenting={setIsPresenting}
+                  />
+                )}
+
+                {appMode === 'pdf' && (
+                  <PdfViewer
+                    pdfData={
+                      project.pdf || {
+                        title: 'Anything Office Architecture & Technical Whitepaper.pdf',
+                        totalPages: 3,
+                        currentPage: 1,
+                        zoom: 100,
+                        rotation: 0,
+                        extractedText:
+                          'Anything Office Architecture: Unifying ECMA-376 OOXML processing, DAG formula evaluation, and DrawingML scene graphs into a sub-second desktop workspace.',
+                      }
+                    }
+                    onUpdatePdf={(updatedPdf: Partial<PdfDocumentData>) => {
+                      const current = project.pdf || {
+                        title: 'Document.pdf',
+                        totalPages: 1,
+                        currentPage: 1,
+                        zoom: 100,
+                        rotation: 0,
+                      };
+                      pushState({ ...project, pdf: { ...current, ...updatedPdf } });
+                    }}
+                    onReflowToDocs={(reflowedDoc: DocumentData) => {
+                      pushState({ ...project, docs: reflowedDoc });
+                      setAppMode('docs');
+                      setSaveToast('PDF Reflowed to Editable Word Document!');
+                      setTimeout(() => setSaveToast(null), 3500);
+                    }}
+                    darkMode={darkMode}
+                  />
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
-      </div>
+
+      {/* Global Hidden File Input for Native Open Dialog */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept=".docx,.xlsx,.pptx,.pdf,.odt,.ods,.odp,.csv,.txt,.json,.anything"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleOpenFile(file);
+          }
+          e.target.value = '';
+        }}
+      />
 
       {/* Drag & Drop Overlay */}
       {isDragging && (

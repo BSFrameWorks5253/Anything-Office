@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AppMode } from '../types/office';
 import {
+  Home,
   FileText,
   Table as TableIcon,
   Presentation,
@@ -30,8 +31,26 @@ export const AppRail: React.FC<AppRailProps> = ({
         darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-600'
       }`}
     >
-      {/* Microsoft 365 Apps Navigation: Word, Excel, PowerPoint, PDF */}
-      <nav className="flex flex-col items-center space-y-2 w-full">
+      {/* Microsoft 365 Apps Navigation: Home, Word, Excel, PowerPoint, PDF */}
+      <nav className="flex flex-col items-center space-y-1.5 w-full">
+        {/* Home Hub */}
+        <button
+          onClick={() => setAppMode('home')}
+          title="Home (Recent Documents & New)"
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            appMode === 'home'
+              ? 'bg-violet-600/15 text-violet-600 dark:text-violet-400 font-bold'
+              : 'hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-500'
+          }`}
+        >
+          {appMode === 'home' && (
+            <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-violet-600" />
+          )}
+          <Home className="w-4 h-4" />
+        </button>
+
+        <div className="w-6 h-px bg-slate-200 dark:bg-slate-800 my-0.5" />
+
         {/* Word (Docs) */}
           <button
             onClick={() => setAppMode('docs')}
