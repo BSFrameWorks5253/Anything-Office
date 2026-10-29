@@ -1,0 +1,15 @@
+{
+  "appId": "anything-office",
+  "enabled": true,
+  "productName": "Anything Office",
+  "versionText": "v1.0.0",
+  "tagline": "The Unified Workspace for Docs, Sheets & Slides",
+  "artistName": "Anything Creative Ecosystem",
+  "artworkTitle": "Anything Office Master Edition",
+  "durationMs": 2500,
+  "logoText": "Ao",
+  "badgeGradient": "linear-gradient(135deg, #185abd 0%, #107c41 50%, #c43e1c 100%)",
+  "artworkUrl": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=85",
+  "artworkFit": "cover",
+  "artworkPosition": "center"
+}

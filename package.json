@@ -1,0 +1,83 @@
+{
+  "name": "anything-office",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Anything Office — The Unified Desktop Workspace for Docs, Sheets, Slides & PDF",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BSFrameworks5253/Anything-Office.git"
+  },
+  "author": "Anything Ecosystem",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "electron": "node ./node_modules/electron/cli.js .",
+    "desktop": "node ./node_modules/electron/cli.js .",
+    "start": "node ./node_modules/electron/cli.js .",
+    "dist": "npm run build && electron-builder --win nsis",
+    "build:exe": "npm run build && electron-builder --win nsis",
+    "release": "npm run build && electron-builder --win nsis --publish always",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "canvas-confetti": "^1.9.4",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.63.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/jszip": "^3.4.0",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "oxlint": "^1.89.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.5",
+    "wait-on": "^9.5.1"
+  },
+  "build": {
+    "appId": "com.anything.office",
+    "productName": "Anything Office",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "loader-config.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Anything Office",
+      "uninstallDisplayName": "Anything Office",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "artifactName": "Anything-Office-Setup-${version}.${ext}"
+    }
+  }
+}
