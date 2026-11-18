@@ -11,6 +11,9 @@ import type {
 } from './types/office';
 import { DEFAULT_PROJECT } from './engine/sampleProjects';
 import { DocumentImporter } from './engine/documentImporter';
+if (typeof window !== 'undefined') {
+  (window as any).__DocumentImporter = DocumentImporter;
+}
 import { DocumentExporter } from './engine/documentExporter';
 import { TitleBar } from './components/TitleBar';
 import { AppRail } from './components/AppRail';

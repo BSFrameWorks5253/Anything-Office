@@ -49,6 +49,11 @@ export class DocumentImporter {
         const pageMatches = raw.match(/\/Type\s*\/Page\b/g);
         if (pageMatches) {
           pageCountEstimate = Math.max(1, pageMatches.length);
+        } else {
+          const countMatch = raw.match(/\/Count\s+(\d+)/);
+          if (countMatch) {
+            pageCountEstimate = Math.max(1, parseInt(countMatch[1], 10));
+          }
         }
         const textMatches = raw.match(/\(([^)]+)\)\s*Tj/g);
         if (textMatches && textMatches.length > 0) {
@@ -57,6 +62,15 @@ export class DocumentImporter {
             .filter(t => t.trim().length > 1)
             .join(' ')
             .slice(0, 3000);
+        } else {
+          const arrayMatches = raw.match(/\[([^\]]+)\]\s*TJ/gi);
+          if (arrayMatches && arrayMatches.length > 0) {
+            textSample = arrayMatches
+              .map(m => (m.match(/\(([^)]+)\)/g) || []).map(t => t.replace(/^\(/, '').replace(/\)$/, '')).join(''))
+              .filter(t => t.trim().length > 1)
+              .join(' ')
+              .slice(0, 3000);
+          }
         }
       } catch (e) {
         console.warn('PDF stream extraction fallback', e);
@@ -240,7 +254,7 @@ export class DocumentImporter {
 
   // --- DOCX Parser (Word) ---
   private static async parseDocx(zip: JSZip, title: string): Promise<DocumentData> {
-    const docXmlFile = zip.file('word/document.xml');
+    const docXmlFile = zip.file('word/document.xml') || zip.file('word/Document.xml');
     if (!docXmlFile) throw new Error('Invalid DOCX: missing word/document.xml');
 
     const xmlStr = await docXmlFile.async('text');
@@ -248,72 +262,96 @@ export class DocumentImporter {
     const xmlDoc = parser.parseFromString(xmlStr, 'application/xml');
 
     const paragraphs: DocParagraph[] = [];
-    const pElements = xmlDoc.getElementsByTagName('w:p');
+
+    // Helper: Extract text from any element preserving tabs, breaks, and child runs
+    const extractRunText = (element: Element): string => {
+      let result = '';
+      const walker = (node: Node) => {
+        if (node.nodeType === 1) {
+          const el = node as Element;
+          const localName = (el.localName || el.nodeName.split(':').pop() || '').toLowerCase();
+          if (localName === 't') {
+            result += el.textContent || '';
+          } else if (localName === 'tab') {
+            result += '\t';
+          } else if (localName === 'br' || localName === 'cr') {
+            result += '\n';
+          }
+        }
+        for (let i = 0; i < node.childNodes.length; i++) {
+          walker(node.childNodes[i]);
+        }
+      };
+      walker(element);
+      return result;
+    };
+
+    // Find all paragraphs (prefixed or unprefixed)
+    const pElements = xmlDoc.getElementsByTagName('w:p').length > 0
+      ? xmlDoc.getElementsByTagName('w:p')
+      : xmlDoc.getElementsByTagName('p');
 
     for (let i = 0; i < pElements.length; i++) {
       const pNode = pElements[i];
 
-      // Check if this paragraph is inside a table (we handle tables separately)
-      if (pNode.closest('w:tbl')) continue;
+      // Check if this paragraph is inside a table (handled separately)
+      if (pNode.closest('w:tbl') || pNode.closest('tbl')) continue;
 
       let pType: DocParagraph['type'] = 'p';
       let align: DocParagraph['align'] = 'left';
 
       // Check heading style
-      const pStyle = pNode.getElementsByTagName('w:pStyle')[0];
+      const pStyle = pNode.getElementsByTagName('w:pStyle')[0] || pNode.getElementsByTagName('pStyle')[0];
       if (pStyle) {
-        const val = pStyle.getAttribute('w:val')?.toLowerCase() || '';
-        if (val.includes('heading1') || val.includes('title')) pType = 'h1';
-        else if (val.includes('heading2')) pType = 'h2';
-        else if (val.includes('heading3')) pType = 'h3';
+        const val = (pStyle.getAttribute('w:val') || pStyle.getAttribute('val') || '').toLowerCase();
+        if (val.includes('heading1') || val.includes('heading 1') || val.includes('title')) pType = 'h1';
+        else if (val.includes('heading2') || val.includes('heading 2')) pType = 'h2';
+        else if (val.includes('heading3') || val.includes('heading 3')) pType = 'h3';
       }
 
       // Check alignment
-      const jc = pNode.getElementsByTagName('w:jc')[0];
+      const jc = pNode.getElementsByTagName('w:jc')[0] || pNode.getElementsByTagName('jc')[0];
       if (jc) {
-        const jcVal = jc.getAttribute('w:val');
+        const jcVal = jc.getAttribute('w:val') || jc.getAttribute('val');
         if (jcVal === 'center') align = 'center';
         else if (jcVal === 'right') align = 'right';
         else if (jcVal === 'both') align = 'justify';
       }
 
-      // Extract text from w:t nodes
-      const tNodes = pNode.getElementsByTagName('w:t');
-      let text = '';
-      for (let j = 0; j < tNodes.length; j++) {
-        text += tNodes[j].textContent || '';
-      }
+      const text = extractRunText(pNode).trim();
 
-      if (text.trim().length > 0) {
+      if (text.length > 0) {
         paragraphs.push({
           id: `docx-p-${i}-${Math.random().toString(36).substr(2, 4)}`,
           type: pType,
-          content: text.trim(),
+          content: text,
           align,
         });
       }
     }
 
-    // Extract Tables
-    const tblElements = xmlDoc.getElementsByTagName('w:tbl');
+    // Extract Tables (prefixed or unprefixed)
+    const tblElements = xmlDoc.getElementsByTagName('w:tbl').length > 0
+      ? xmlDoc.getElementsByTagName('w:tbl')
+      : xmlDoc.getElementsByTagName('tbl');
+
     for (let t = 0; t < tblElements.length; t++) {
       const tblNode = tblElements[t];
-      const rows = tblNode.getElementsByTagName('w:tr');
+      const rows = tblNode.getElementsByTagName('w:tr').length > 0
+        ? tblNode.getElementsByTagName('w:tr')
+        : tblNode.getElementsByTagName('tr');
       const tableData: string[][] = [];
 
       for (let r = 0; r < rows.length; r++) {
         const rowNode = rows[r];
-        const cells = rowNode.getElementsByTagName('w:tc');
+        const cells = rowNode.getElementsByTagName('w:tc').length > 0
+          ? rowNode.getElementsByTagName('w:tc')
+          : rowNode.getElementsByTagName('tc');
         const rowValues: string[] = [];
 
         for (let c = 0; c < cells.length; c++) {
           const cellNode = cells[c];
-          const tNodes = cellNode.getElementsByTagName('w:t');
-          let cellText = '';
-          for (let k = 0; k < tNodes.length; k++) {
-            cellText += tNodes[k].textContent || '';
-          }
-          rowValues.push(cellText.trim());
+          rowValues.push(extractRunText(cellNode).trim());
         }
         if (rowValues.length > 0) tableData.push(rowValues);
       }
@@ -412,7 +450,7 @@ export class DocumentImporter {
   private static async parseXlsx(zip: JSZip): Promise<SpreadsheetData> {
     // 1. Read shared strings table if present
     const sharedStrings: string[] = [];
-    const ssFile = zip.file('xl/sharedStrings.xml');
+    const ssFile = zip.file('xl/sharedStrings.xml') || zip.file('xl/SharedStrings.xml');
     if (ssFile) {
       const ssXml = await ssFile.async('text');
       const parser = new DOMParser();
@@ -428,13 +466,78 @@ export class DocumentImporter {
       }
     }
 
-    // 2. Discover sheets
-    const sheets: SheetData[] = [];
-    let sheetIdx = 1;
+    // Helper: Column letters (e.g. A, Z, AA, BC) to 1-based number
+    const colLetterToNumber = (col: string): number => {
+      let num = 0;
+      const upper = col.toUpperCase();
+      for (let i = 0; i < upper.length; i++) {
+        num = num * 26 + (upper.charCodeAt(i) - 64);
+      }
+      return num;
+    };
 
-    while (true) {
-      const sheetFile = zip.file(`xl/worksheets/sheet${sheetIdx}.xml`);
-      if (!sheetFile) break;
+    // 2. Discover sheets from workbook.xml + relationships
+    interface SheetMeta {
+      name: string;
+      filePath: string;
+    }
+    const sheetMetaList: SheetMeta[] = [];
+    const wbFile = zip.file('xl/workbook.xml') || zip.file('xl/Workbook.xml');
+    const wbRelsFile = zip.file('xl/_rels/workbook.xml.rels') || zip.file('xl/_rels/Workbook.xml.rels');
+    const relsMap: Record<string, string> = {};
+
+    if (wbRelsFile) {
+      const relsXml = await wbRelsFile.async('text');
+      const parser = new DOMParser();
+      const relsDoc = parser.parseFromString(relsXml, 'application/xml');
+      const relNodes = relsDoc.getElementsByTagName('Relationship');
+      for (let i = 0; i < relNodes.length; i++) {
+        const id = relNodes[i].getAttribute('Id');
+        let target = relNodes[i].getAttribute('Target');
+        if (id && target) {
+          target = target.replace(/^\/xl\//i, 'xl/').replace(/^\//, '');
+          if (!target.toLowerCase().startsWith('xl/')) {
+            target = 'xl/' + target;
+          }
+          relsMap[id] = target;
+        }
+      }
+    }
+
+    if (wbFile) {
+      const wbXml = await wbFile.async('text');
+      const parser = new DOMParser();
+      const wbDoc = parser.parseFromString(wbXml, 'application/xml');
+      const sheetNodes = wbDoc.getElementsByTagName('sheet');
+      for (let i = 0; i < sheetNodes.length; i++) {
+        const name = sheetNodes[i].getAttribute('name') || `Sheet ${i + 1}`;
+        const rId = sheetNodes[i].getAttribute('r:id') || sheetNodes[i].getAttribute('id');
+        const targetPath = rId && relsMap[rId] ? relsMap[rId] : `xl/worksheets/sheet${i + 1}.xml`;
+        sheetMetaList.push({ name, filePath: targetPath });
+      }
+    }
+
+    // Fallback if workbook discovery had no sheets: search zip for all worksheets
+    if (sheetMetaList.length === 0) {
+      const wsFiles = Object.keys(zip.files)
+        .filter((f) => /^xl\/worksheets\/sheet.*\.xml$/i.test(f))
+        .sort((a, b) => {
+          const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
+          const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
+          return numA - numB;
+        });
+
+      wsFiles.forEach((filePath, idx) => {
+        sheetMetaList.push({ name: `Sheet ${idx + 1}`, filePath });
+      });
+    }
+
+    const sheets: SheetData[] = [];
+
+    for (let sIdx = 0; sIdx < sheetMetaList.length; sIdx++) {
+      const { name, filePath } = sheetMetaList[sIdx];
+      const sheetFile = zip.file(filePath) || zip.file(filePath.toLowerCase());
+      if (!sheetFile) continue;
 
       const sheetXml = await sheetFile.async('text');
       const parser = new DOMParser();
@@ -454,24 +557,52 @@ export class DocumentImporter {
         const cellType = cNode.getAttribute('t');
         const fNode = cNode.getElementsByTagName('f')[0];
         const vNode = cNode.getElementsByTagName('v')[0];
+        const isNode = cNode.getElementsByTagName('is')[0];
 
         let rawVal = '';
+
+        // Priority 1: Formula
         if (fNode && fNode.textContent) {
           rawVal = `=${fNode.textContent.trim()}`;
-        } else if (vNode) {
+        }
+        // Priority 2: Inline String (<is><t>...</t></is> or <is><r><t>...</t></r></is>)
+        else if (cellType === 'inlineStr' || isNode) {
+          const targetNode = isNode || cNode;
+          const tNodes = targetNode.getElementsByTagName('t');
+          let inlineText = '';
+          for (let k = 0; k < tNodes.length; k++) {
+            inlineText += tNodes[k].textContent || '';
+          }
+          rawVal = inlineText;
+        }
+        // Priority 3: Cell Value (<v>)
+        else if (vNode) {
           const valText = vNode.textContent?.trim() || '';
           if (cellType === 's') {
             const ssIndex = parseInt(valText, 10);
-            rawVal = sharedStrings[ssIndex] || valText;
+            rawVal = sharedStrings[ssIndex] !== undefined ? sharedStrings[ssIndex] : valText;
+          } else if (cellType === 'b') {
+            rawVal = valText === '1' ? 'TRUE' : 'FALSE';
           } else {
             rawVal = valText;
           }
         }
+        // Priority 4: Direct <t> inside <c>
+        else {
+          const directT = cNode.getElementsByTagName('t')[0];
+          if (directT && directT.textContent) {
+            rawVal = directT.textContent;
+          }
+        }
 
-        const match = cellCoord.match(/^([A-Z]+)([0-9]+)$/);
+        // Track max row and max column
+        const match = cellCoord.match(/^([A-Z]+)([0-9]+)$/i);
         if (match) {
+          const colLetters = match[1];
           const rowNum = parseInt(match[2], 10);
           if (rowNum > maxRow) maxRow = rowNum;
+          const colNum = colLetterToNumber(colLetters);
+          if (colNum > maxCol) maxCol = colNum;
         }
 
         if (rawVal !== '') {
@@ -480,22 +611,20 @@ export class DocumentImporter {
       }
 
       sheets.push({
-        id: `xlsx-sheet-${sheetIdx}`,
-        name: `Sheet ${sheetIdx}`,
-        rowCount: Math.min(100, Math.max(25, maxRow + 5)),
-        colCount: Math.min(26, Math.max(12, maxCol + 2)),
+        id: `xlsx-sheet-${sIdx + 1}`,
+        name,
+        rowCount: Math.max(50, maxRow + 10),
+        colCount: Math.max(26, maxCol + 2),
         cells,
       });
-
-      sheetIdx++;
     }
 
     if (sheets.length === 0) {
       sheets.push({
         id: 'xlsx-empty',
         name: 'Sheet 1',
-        rowCount: 25,
-        colCount: 12,
+        rowCount: 50,
+        colCount: 26,
         cells: {},
       });
     }
@@ -518,6 +647,17 @@ export class DocumentImporter {
     const sheets: SheetData[] = [];
     const tableNodes = xmlDoc.querySelectorAll('table\\:table, table');
 
+    // Helper: Number to Column letter (1 -> A, 27 -> AA, etc.)
+    const numberToColLetter = (n: number): string => {
+      let s = '';
+      while (n > 0) {
+        const m = (n - 1) % 26;
+        s = String.fromCharCode(65 + m) + s;
+        n = Math.floor((n - m) / 26);
+      }
+      return s;
+    };
+
     let sheetCounter = 1;
     tableNodes.forEach((tableNode) => {
       const sheetName =
@@ -526,9 +666,10 @@ export class DocumentImporter {
 
       const rowNodes = tableNode.querySelectorAll('table\\:table-row, table-row');
       let rIdx = 1;
+      let maxCol = 10;
 
       rowNodes.forEach((rowNode) => {
-        let cIdx = 0;
+        let cIdx = 1;
         const cellNodes = rowNode.querySelectorAll('table\\:table-cell, table-cell');
 
         cellNodes.forEach((cellNode) => {
@@ -538,15 +679,18 @@ export class DocumentImporter {
           );
           const formula = cellNode.getAttribute('table:formula');
           const pNode = cellNode.querySelector('text\\:p, p');
-          const textVal = pNode?.textContent?.trim() || '';
+          const textVal =
+            pNode?.textContent?.trim() ||
+            cellNode.getAttribute('office:string-value') ||
+            cellNode.getAttribute('office:value') ||
+            '';
 
-          if ((formula || textVal) && cIdx < 26) {
-            const colLetter = String.fromCharCode(65 + cIdx);
+          if (formula || textVal) {
+            const colLetter = numberToColLetter(cIdx);
             const cellCoord = `${colLetter}${rIdx}`;
 
             let rawVal = textVal;
             if (formula) {
-              // Normalize of:=SUM([.A1:.A5]) to =SUM(A1:A5)
               rawVal = formula
                 .replace(/^of:=/, '=')
                 .replace(/\[\./g, '')
@@ -554,8 +698,9 @@ export class DocumentImporter {
             }
 
             cells[cellCoord] = { raw: rawVal };
+            if (cIdx > maxCol) maxCol = cIdx;
           }
-          cIdx += Math.min(repeat, 10);
+          cIdx += Math.min(repeat, 250);
         });
         rIdx++;
       });
@@ -563,38 +708,89 @@ export class DocumentImporter {
       sheets.push({
         id: `ods-sheet-${sheetCounter}`,
         name: sheetName,
-        rowCount: Math.max(25, rIdx + 2),
-        colCount: 15,
+        rowCount: Math.max(50, rIdx + 5),
+        colCount: Math.max(26, maxCol + 2),
         cells,
       });
       sheetCounter++;
     });
 
+    if (sheets.length === 0) {
+      sheets.push({
+        id: 'ods-empty',
+        name: 'Sheet 1',
+        rowCount: 50,
+        colCount: 26,
+        cells: {},
+      });
+    }
+
     return {
-      sheets:
-        sheets.length > 0
-          ? sheets
-          : [
-              {
-                id: 'ods-empty',
-                name: 'Sheet 1',
-                rowCount: 25,
-                colCount: 12,
-                cells: {},
-              },
-            ],
-      activeSheetId: sheets[0]?.id || 'ods-empty',
+      sheets,
+      activeSheetId: sheets[0].id,
     };
   }
 
   // --- PPTX Parser (PowerPoint) ---
   private static async parsePptx(zip: JSZip): Promise<PresentationData> {
     const slides: SlideData[] = [];
-    let slideIdx = 1;
 
-    while (true) {
-      const slideFile = zip.file(`ppt/slides/slide${slideIdx}.xml`);
-      if (!slideFile) break;
+    // Discover slides in presentation order
+    const slidePaths: string[] = [];
+    const presFile = zip.file('ppt/presentation.xml') || zip.file('ppt/Presentation.xml');
+    const presRelsFile =
+      zip.file('ppt/_rels/presentation.xml.rels') || zip.file('ppt/_rels/Presentation.xml.rels');
+    const relsMap: Record<string, string> = {};
+
+    if (presRelsFile) {
+      const relsXml = await presRelsFile.async('text');
+      const parser = new DOMParser();
+      const relsDoc = parser.parseFromString(relsXml, 'application/xml');
+      const relNodes = relsDoc.getElementsByTagName('Relationship');
+      for (let i = 0; i < relNodes.length; i++) {
+        const id = relNodes[i].getAttribute('Id');
+        let target = relNodes[i].getAttribute('Target');
+        if (id && target) {
+          target = target.replace(/^\/ppt\//i, 'ppt/').replace(/^\//, '');
+          if (!target.toLowerCase().startsWith('ppt/')) target = 'ppt/' + target;
+          relsMap[id] = target;
+        }
+      }
+    }
+
+    if (presFile) {
+      const presXml = await presFile.async('text');
+      const parser = new DOMParser();
+      const presDoc = parser.parseFromString(presXml, 'application/xml');
+      const sldIdNodes =
+        presDoc.getElementsByTagName('p:sldId').length > 0
+          ? presDoc.getElementsByTagName('p:sldId')
+          : presDoc.getElementsByTagName('sldId');
+
+      for (let i = 0; i < sldIdNodes.length; i++) {
+        const rId = sldIdNodes[i].getAttribute('r:id') || sldIdNodes[i].getAttribute('id');
+        if (rId && relsMap[rId]) {
+          slidePaths.push(relsMap[rId]);
+        }
+      }
+    }
+
+    // Fallback: search zip for all slide files
+    if (slidePaths.length === 0) {
+      const foundFiles = Object.keys(zip.files)
+        .filter((f) => /^ppt\/slides\/slide.*\.xml$/i.test(f))
+        .sort((a, b) => {
+          const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
+          const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
+          return numA - numB;
+        });
+      slidePaths.push(...foundFiles);
+    }
+
+    for (let sIdx = 0; sIdx < slidePaths.length; sIdx++) {
+      const slidePath = slidePaths[sIdx];
+      const slideFile = zip.file(slidePath) || zip.file(slidePath.toLowerCase());
+      if (!slideFile) continue;
 
       const slideXml = await slideFile.async('text');
       const parser = new DOMParser();
@@ -602,13 +798,21 @@ export class DocumentImporter {
 
       const elements: SlideElement[] = [];
 
-      // Extract text boxes & shapes from p:sp
-      const spElements = slideDoc.getElementsByTagName('p:sp');
+      // Extract shapes (p:sp or sp)
+      const spElements =
+        slideDoc.getElementsByTagName('p:sp').length > 0
+          ? slideDoc.getElementsByTagName('p:sp')
+          : slideDoc.getElementsByTagName('sp');
+
       let titleFound = false;
 
       for (let i = 0; i < spElements.length; i++) {
         const spNode = spElements[i];
-        const tNodes = spNode.getElementsByTagName('a:t');
+        const tNodes =
+          spNode.getElementsByTagName('a:t').length > 0
+            ? spNode.getElementsByTagName('a:t')
+            : spNode.getElementsByTagName('t');
+
         let text = '';
         for (let j = 0; j < tNodes.length; j++) {
           text += (tNodes[j].textContent || '') + ' ';
@@ -619,7 +823,7 @@ export class DocumentImporter {
         if (!titleFound) {
           titleFound = true;
           elements.push({
-            id: `pptx-el-${slideIdx}-${i}`,
+            id: `pptx-el-${sIdx + 1}-${i}`,
             type: 'heading',
             content: text,
             x: 8,
@@ -629,7 +833,7 @@ export class DocumentImporter {
           });
         } else {
           elements.push({
-            id: `pptx-el-${slideIdx}-${i}`,
+            id: `pptx-el-${sIdx + 1}-${i}`,
             type: 'shape',
             content: text,
             x: 8,
@@ -641,8 +845,8 @@ export class DocumentImporter {
       }
 
       slides.push({
-        id: `pptx-slide-${slideIdx}`,
-        title: elements[0]?.content || `Slide ${slideIdx}`,
+        id: `pptx-slide-${sIdx + 1}`,
+        title: elements[0]?.content || `Slide ${sIdx + 1}`,
         layout: 'title-bullets',
         bgColor: '#0f172a',
         elements:
@@ -650,18 +854,16 @@ export class DocumentImporter {
             ? elements
             : [
                 {
-                  id: `pptx-el-empty`,
+                  id: `empty-el-${sIdx + 1}`,
                   type: 'heading',
-                  content: `Slide ${slideIdx}`,
-                  x: 10,
+                  content: `Slide ${sIdx + 1}`,
+                  x: 8,
                   y: 40,
-                  width: 80,
-                  style: { fontSize: 32, color: '#fff', align: 'center' },
+                  width: 84,
+                  style: { fontSize: 32, bold: true, color: '#ffffff', align: 'center' },
                 },
               ],
       });
-
-      slideIdx++;
     }
 
     return {
@@ -670,14 +872,7 @@ export class DocumentImporter {
       slides:
         slides.length > 0
           ? slides
-          : [
-              {
-                id: 'pptx-empty',
-                title: 'Empty Slide',
-                layout: 'title',
-                elements: [],
-              },
-            ],
+          : [{ id: 'empty-1', title: 'Slide 1', layout: 'title', elements: [] }],
     };
   }
 
