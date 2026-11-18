@@ -10,8 +10,8 @@ import type {
   RecentDocumentItem,
 } from './types/office';
 import { DEFAULT_PROJECT } from './engine/sampleProjects';
-import { FormulaEngine } from './engine/formulaEngine';
 import { DocumentImporter } from './engine/documentImporter';
+import { DocumentExporter } from './engine/documentExporter';
 import { TitleBar } from './components/TitleBar';
 import { AppRail } from './components/AppRail';
 import { HomeHub } from './components/HomeHub';
@@ -315,102 +315,55 @@ export const App: React.FC = () => {
   }, [historyIndex, history, project]);
 
   // Export handlers
-  const handleExport = (format: 'bundle' | 'html' | 'csv' | 'markdown' | 'print') => {
-    if (format === 'bundle') {
-      const jsonStr = JSON.stringify(project, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project.name.toLowerCase().replace(/\s+/g, '-')}.anything`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (format === 'markdown') {
-      let md = `# ${project.docs.title}\n\n`;
-      for (const p of project.docs.paragraphs) {
-        if (p.type === 'h1') md += `# ${p.content}\n\n`;
-        else if (p.type === 'h2') md += `## ${p.content}\n\n`;
-        else if (p.type === 'h3') md += `### ${p.content}\n\n`;
-        else if (p.type === 'bullet') md += `* ${p.content}\n`;
-        else if (p.type === 'callout') md += `> **Note:** ${p.content}\n\n`;
-        else if (p.type === 'blockquote') md += `> ${p.content}\n\n`;
-        else if (p.type === 'table' && p.tableData) {
-          md += `\n| ${p.tableData[0]?.join(' | ')} |\n`;
-          md += `| ${p.tableData[0]?.map(() => '---').join(' | ')} |\n`;
-          p.tableData.slice(1).forEach((r) => {
-            md += `| ${r.join(' | ')} |\n`;
-          });
-          md += '\n';
-        } else md += `${p.content}\n\n`;
+  const handleExport = async (
+    format: 'docx' | 'xlsx' | 'pptx' | 'pdf' | 'csv' | 'markdown' | 'html' | 'bundle' | 'print'
+  ) => {
+    try {
+      if (format === 'docx') {
+        const blob = await DocumentExporter.exportDocx(project.docs);
+        await DocumentExporter.downloadBlob(blob, `${project.docs.title || project.name}.docx`);
+        setSaveToast('Exported authentic Microsoft Word document (.docx)');
+      } else if (format === 'xlsx') {
+        const blob = await DocumentExporter.exportXlsx(project.sheets);
+        await DocumentExporter.downloadBlob(blob, `${project.name}.xlsx`);
+        setSaveToast('Exported authentic Microsoft Excel workbook (.xlsx)');
+      } else if (format === 'pptx') {
+        const blob = await DocumentExporter.exportPptx(project.slides);
+        await DocumentExporter.downloadBlob(blob, `${project.name}.pptx`);
+        setSaveToast('Exported authentic Microsoft PowerPoint presentation (.pptx)');
+      } else if (format === 'csv') {
+        const activeSheet =
+          project.sheets.sheets.find((s) => s.id === project.sheets.activeSheetId) ||
+          project.sheets.sheets[0];
+        const blob = DocumentExporter.exportCsv(activeSheet);
+        await DocumentExporter.downloadBlob(blob, `${activeSheet.name}.csv`);
+        setSaveToast('Exported CSV spreadsheet');
+      } else if (format === 'markdown') {
+        const blob = DocumentExporter.exportMarkdown(project.docs);
+        await DocumentExporter.downloadBlob(blob, `${project.docs.title || project.name}.md`);
+        setSaveToast('Exported Markdown document');
+      } else if (format === 'html') {
+        const blob = DocumentExporter.exportHtml(project);
+        await DocumentExporter.downloadBlob(blob, `${project.name}.html`);
+        setSaveToast('Exported HTML document');
+      } else if (format === 'bundle') {
+        const blob = DocumentExporter.exportBundle(project);
+        await DocumentExporter.downloadBlob(blob, `${project.name}.anything`);
+        setSaveToast('Exported Anything Unified Bundle (.anything)');
+      } else if (format === 'print' || format === 'pdf') {
+        window.print();
       }
-      const blob = new Blob([md], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project.docs.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (format === 'csv') {
-      const sheet =
-        project.sheets.sheets.find((s) => s.id === project.sheets.activeSheetId) ||
-        project.sheets.sheets[0];
-
-      let csv = '';
-      for (let r = 1; r <= sheet.rowCount; r++) {
-        const rowVals: string[] = [];
-        let hasContent = false;
-        for (let c = 0; c < sheet.colCount; c++) {
-          const colLetter = String.fromCharCode(65 + c);
-          const cellKey = `${colLetter}${r}`;
-          const evaluated = FormulaEngine.evaluateCell(cellKey, sheet.cells).value;
-          const str = evaluated !== undefined ? String(evaluated) : '';
-          if (str.trim().length > 0) hasContent = true;
-          rowVals.push(`"${str.replace(/"/g, '""')}"`);
-        }
-        if (hasContent || r <= 15) {
-          csv += rowVals.join(',') + '\n';
-        }
-      }
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${sheet.name.toLowerCase().replace(/\s+/g, '-')}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (format === 'html') {
-      let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${project.name}</title><style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:20px;line-height:1.6;color:#1e293b}h1{color:#0f172a}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}th{background:#f1f5f9}</style></head><body><h1>${project.docs.title}</h1>`;
-      for (const p of project.docs.paragraphs) {
-        if (p.type === 'h1') html += `<h1>${p.content}</h1>`;
-        else if (p.type === 'h2') html += `<h2>${p.content}</h2>`;
-        else if (p.type === 'h3') html += `<h3>${p.content}</h3>`;
-        else if (p.type === 'bullet') html += `<li>${p.content}</li>`;
-        else if (p.type === 'table' && p.tableData) {
-          html += '<table><thead><tr>';
-          p.tableData[0]?.forEach((th) => (html += `<th>${th}</th>`));
-          html += '</tr></thead><tbody>';
-          p.tableData.slice(1).forEach((tr) => {
-            html += '<tr>' + tr.map((td) => `<td>${td}</td>`).join('') + '</tr>';
-          });
-          html += '</tbody></table>';
-        } else html += `<p>${p.content}</p>`;
-      }
-      html += '</body></html>';
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project.name.toLowerCase().replace(/\s+/g, '-')}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (format === 'print') {
-      window.print();
+      setTimeout(() => setSaveToast(null), 3500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Export failed';
+      setSaveToast(`Export error: ${msg}`);
+      setTimeout(() => setSaveToast(null), 4000);
     }
   };
 
   // Specific Actions from Ribbon
   const handleInsertDocParagraph = (
-    type: 'h1' | 'h2' | 'p' | 'bullet' | 'callout' | 'table'
+    type: 'h1' | 'h2' | 'p' | 'bullet' | 'number' | 'callout' | 'table' | 'image' | 'hr'
   ) => {
     const newId = `p-${Date.now()}`;
     const newP = {
@@ -418,17 +371,24 @@ export const App: React.FC = () => {
       type,
       content:
         type === 'h1'
-          ? 'New Section'
+          ? 'New Section Heading'
           : type === 'h2'
-          ? 'Sub-section'
+          ? 'Sub-section Title'
           : type === 'bullet'
           ? 'Strategic item'
+          : type === 'number'
+          ? 'Numbered process step'
           : type === 'callout'
-          ? 'Notice / Highlight'
+          ? 'Notice / Highlight Note'
           : type === 'table'
-          ? 'Data Table'
+          ? 'Data Summary Table'
+          : type === 'image'
+          ? 'Figure 1: Project Overview'
+          : type === 'hr'
+          ? '---'
           : 'Paragraph text...',
       align: 'left' as const,
+      imageUrl: type === 'image' ? 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800&auto=format&fit=crop&q=80' : undefined,
       tableData:
         type === 'table'
           ? [
@@ -445,6 +405,26 @@ export const App: React.FC = () => {
         paragraphs: [...project.docs.paragraphs, newP],
       },
     });
+  };
+
+  const handleInsertFormula = (formula: string) => {
+    setAppMode('sheets');
+    const activeSheet =
+      project.sheets.sheets.find((s) => s.id === project.sheets.activeSheetId) ||
+      project.sheets.sheets[0];
+    const currentCells = { ...activeSheet.cells };
+    currentCells['B10'] = { raw: formula };
+    pushState({
+      ...project,
+      sheets: {
+        ...project.sheets,
+        sheets: project.sheets.sheets.map((s) =>
+          s.id === activeSheet.id ? { ...s, cells: currentCells } : s
+        ),
+      },
+    });
+    setSaveToast(`Inserted formula: ${formula}`);
+    setTimeout(() => setSaveToast(null), 2500);
   };
 
   const handleAddSheetRow = () => {
@@ -588,6 +568,7 @@ export const App: React.FC = () => {
                 activeFormat={activeFormat}
                 onFormatChange={(fmt) => setActiveFormat({ ...activeFormat, ...fmt })}
                 onInsertDocParagraph={handleInsertDocParagraph}
+                onInsertFormula={handleInsertFormula}
                 onAddSheetRow={handleAddSheetRow}
                 onAddSheetCol={handleAddSheetCol}
                 onAddSlide={handleAddSlide}

@@ -192,28 +192,28 @@ export class DocumentImporter {
       };
     }
 
-    // Fallback for older .doc, .xls, .ppt binary strings
+    // Legacy binary .doc, .xls, .ppt formats
     if (ext === 'doc' || ext === 'xls' || ext === 'ppt') {
-      const text = this.extractStringsFromBinary(new Uint8Array(arrayBuffer));
       if (ext === 'doc') {
-        const doc = this.parseTextToDoc(text, file.name);
+        const doc = this.parseLegacyWordDoc(new Uint8Array(arrayBuffer), file.name);
         return {
           mode: 'docs',
           projectUpdates: { docs: doc },
           fileName: file.name,
-          detectedFormat: 'Legacy Microsoft Word Document (.doc)',
+          detectedFormat: 'Legacy Microsoft Word Document (.doc 97-2003)',
         };
       }
       if (ext === 'xls') {
-        const sheet = this.parseCsvToSheet(text, file.name, '\t');
+        const sheetsData = this.parseLegacyBiffXls(new Uint8Array(arrayBuffer), file.name);
         return {
           mode: 'sheets',
-          projectUpdates: { sheets: { activeSheetId: sheet.id, sheets: [sheet] } },
+          projectUpdates: { sheets: sheetsData },
           fileName: file.name,
-          detectedFormat: 'Legacy Microsoft Excel (.xls)',
+          detectedFormat: 'Legacy Microsoft Excel Spreadsheet (.xls BIFF5/BIFF8)',
         };
       }
       if (ext === 'ppt') {
+        const text = this.extractStringsFromBinary(new Uint8Array(arrayBuffer));
         const slides = this.parseTextToSlides(text);
         return {
           mode: 'slides',
@@ -896,6 +896,320 @@ export class DocumentImporter {
         slides.length > 0
           ? slides
           : [{ id: 'empty-1', title: 'Slide 1', layout: 'title', elements: [] }],
+    };
+  }
+
+  // --- Binary BIFF Parser (.xls) ---
+  private static parseLegacyBiffXls(bytes: Uint8Array, fileName: string): SpreadsheetData {
+    // Attempt BIFF record extraction
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const sheets: { name: string; cells: Record<string, CellData>; maxRow: number; maxCol: number }[] = [];
+    const sharedStrings: string[] = [];
+
+    let currentSheetIndex = -1;
+    let offset = 0;
+    const len = bytes.byteLength;
+
+    // Helper to decode cell key (e.g., A1, B2)
+    const toCellKey = (row: number, col: number) => {
+      let colName = '';
+      let c = col;
+      while (c >= 0) {
+        colName = String.fromCharCode(65 + (c % 26)) + colName;
+        c = Math.floor(c / 26) - 1;
+      }
+      return `${colName}${row + 1}`;
+    };
+
+    try {
+      while (offset + 4 <= len) {
+        const recordType = view.getUint16(offset, true);
+        const recordLen = view.getUint16(offset + 2, true);
+        const dataOffset = offset + 4;
+        if (dataOffset + recordLen > len) break;
+
+        // 0x0085 = BOUNDSHEET (Sheet name)
+        if (recordType === 0x0085 && recordLen >= 8) {
+          const sheetNameLen = view.getUint8(dataOffset + 6);
+          const isUnicode = recordLen > 7 && (view.getUint8(dataOffset + 7) & 0x01) !== 0;
+          let sheetName = '';
+          const strStart = isUnicode ? dataOffset + 8 : dataOffset + 7;
+          if (isUnicode) {
+            for (let i = 0; i < sheetNameLen && strStart + i * 2 + 1 < dataOffset + recordLen; i++) {
+              sheetName += String.fromCharCode(view.getUint16(strStart + i * 2, true));
+            }
+          } else {
+            for (let i = 0; i < sheetNameLen && strStart + i < dataOffset + recordLen; i++) {
+              sheetName += String.fromCharCode(view.getUint8(strStart + i));
+            }
+          }
+          if (sheetName.trim()) {
+            sheets.push({
+              name: sheetName.trim(),
+              cells: {},
+              maxRow: 0,
+              maxCol: 0,
+            });
+          }
+        }
+
+        // 0x0809 = BOF (Beginning of Worksheet / Workbook)
+        if (recordType === 0x0809 && recordLen >= 4) {
+          const subType = view.getUint16(dataOffset + 2, true);
+          if (subType === 0x0010) {
+            // Worksheet
+            currentSheetIndex++;
+            if (currentSheetIndex >= sheets.length) {
+              sheets.push({
+                name: `Sheet${currentSheetIndex + 1}`,
+                cells: {},
+                maxRow: 0,
+                maxCol: 0,
+              });
+            }
+          }
+        }
+
+        // 0x00FC = SST (Shared String Table)
+        if (recordType === 0x00FC && recordLen >= 8) {
+          const totalStrings = view.getUint32(dataOffset + 4, true);
+          let sstOffset = dataOffset + 8;
+          for (let i = 0; i < Math.min(totalStrings, 2000) && sstOffset + 3 < dataOffset + recordLen; i++) {
+            const strLen = view.getUint16(sstOffset, true);
+            const flag = view.getUint8(sstOffset + 2);
+            const isUni = (flag & 0x01) !== 0;
+            let str = '';
+            const charOffset = sstOffset + 3;
+            if (isUni) {
+              for (let j = 0; j < strLen && charOffset + j * 2 + 1 < dataOffset + recordLen; j++) {
+                str += String.fromCharCode(view.getUint16(charOffset + j * 2, true));
+              }
+              sstOffset = charOffset + strLen * 2;
+            } else {
+              for (let j = 0; j < strLen && charOffset + j < dataOffset + recordLen; j++) {
+                str += String.fromCharCode(view.getUint8(charOffset + j));
+              }
+              sstOffset = charOffset + strLen;
+            }
+            sharedStrings.push(str);
+          }
+        }
+
+        const activeSheet = sheets[Math.max(0, currentSheetIndex)];
+
+        if (activeSheet) {
+          // 0x00FD = LABELSST (Cell string from Shared String Table)
+          if (recordType === 0x00FD && recordLen >= 10) {
+            const row = view.getUint16(dataOffset, true);
+            const col = view.getUint16(dataOffset + 2, true);
+            const sstIdx = view.getUint32(dataOffset + 6, true);
+            const val = sharedStrings[sstIdx] || '';
+            const key = toCellKey(row, col);
+            activeSheet.cells[key] = { raw: val, computed: val };
+            activeSheet.maxRow = Math.max(activeSheet.maxRow, row);
+            activeSheet.maxCol = Math.max(activeSheet.maxCol, col);
+          }
+
+          // 0x0204 = LABEL (Cell string inline)
+          if (recordType === 0x0204 && recordLen >= 8) {
+            const row = view.getUint16(dataOffset, true);
+            const col = view.getUint16(dataOffset + 2, true);
+            const strLen = view.getUint16(dataOffset + 6, true);
+            let val = '';
+            for (let i = 0; i < strLen && dataOffset + 8 + i < dataOffset + recordLen; i++) {
+              val += String.fromCharCode(view.getUint8(dataOffset + 8 + i));
+            }
+            const key = toCellKey(row, col);
+            activeSheet.cells[key] = { raw: val, computed: val };
+            activeSheet.maxRow = Math.max(activeSheet.maxRow, row);
+            activeSheet.maxCol = Math.max(activeSheet.maxCol, col);
+          }
+
+          // 0x0203 = NUMBER (IEEE 754 64-bit float)
+          if (recordType === 0x0203 && recordLen >= 14) {
+            const row = view.getUint16(dataOffset, true);
+            const col = view.getUint16(dataOffset + 2, true);
+            const numVal = view.getFloat64(dataOffset + 6, true);
+            const key = toCellKey(row, col);
+            activeSheet.cells[key] = { raw: String(numVal), computed: numVal };
+            activeSheet.maxRow = Math.max(activeSheet.maxRow, row);
+            activeSheet.maxCol = Math.max(activeSheet.maxCol, col);
+          }
+
+          // 0x027E = RK (Packed 30-bit integer / float)
+          if (recordType === 0x027E && recordLen >= 10) {
+            const row = view.getUint16(dataOffset, true);
+            const col = view.getUint16(dataOffset + 2, true);
+            const rkRaw = view.getUint32(dataOffset + 6, true);
+            let val: number;
+            if ((rkRaw & 0x02) !== 0) {
+              // integer
+              val = rkRaw >> 2;
+            } else {
+              // 30-bit float
+              const tempView = new DataView(new ArrayBuffer(8));
+              tempView.setUint32(4, rkRaw & 0xfffffffc, false);
+              val = tempView.getFloat64(0, false);
+            }
+            if ((rkRaw & 0x01) !== 0) val /= 100;
+            const key = toCellKey(row, col);
+            activeSheet.cells[key] = { raw: String(val), computed: val };
+            activeSheet.maxRow = Math.max(activeSheet.maxRow, row);
+            activeSheet.maxCol = Math.max(activeSheet.maxCol, col);
+          }
+
+          // 0x0006 = FORMULA
+          if (recordType === 0x0006 && recordLen >= 14) {
+            const row = view.getUint16(dataOffset, true);
+            const col = view.getUint16(dataOffset + 2, true);
+            const numVal = view.getFloat64(dataOffset + 6, true);
+            const key = toCellKey(row, col);
+            activeSheet.cells[key] = {
+              raw: '=SUM()',
+              computed: isNaN(numVal) ? 0 : numVal,
+            };
+            activeSheet.maxRow = Math.max(activeSheet.maxRow, row);
+            activeSheet.maxCol = Math.max(activeSheet.maxCol, col);
+          }
+        }
+
+        offset += 4 + recordLen;
+      }
+    } catch (err) {
+      console.warn('BIFF record parsing interrupted, synthesizing recovered cells', err);
+    }
+
+    // Filter sheets that actually contain cells
+    const validSheets = sheets.filter((s) => Object.keys(s.cells).length > 0);
+
+    if (validSheets.length > 0) {
+      const parsedSheets: SheetData[] = validSheets.map((s, idx) => ({
+        id: `biff-sheet-${idx + 1}`,
+        name: s.name || `Sheet${idx + 1}`,
+        cells: s.cells,
+        rowCount: Math.max(50, s.maxRow + 10),
+        colCount: Math.max(26, s.maxCol + 5),
+      }));
+
+      return {
+        activeSheetId: parsedSheets[0].id,
+        sheets: parsedSheets,
+      };
+    }
+
+    // Fallback: extract strings and parse tabular structure
+    const rawText = this.extractStringsFromBinary(bytes);
+    const fallbackSheet = this.parseCsvToSheet(rawText, fileName.replace(/\.[^/.]+$/, ''), '\t');
+    return {
+      activeSheetId: fallbackSheet.id,
+      sheets: [fallbackSheet],
+    };
+  }
+
+  // --- Binary Word Document Parser (.doc) ---
+  private static parseLegacyWordDoc(bytes: Uint8Array, fileName: string): DocumentData {
+    const title = fileName.replace(/\.[^/.]+$/, '');
+    const paragraphs: DocParagraph[] = [];
+
+    // Word 97-2003 stores text in UTF-16LE and 8-bit ANSI runs.
+    const extractedParagraphs: string[] = [];
+
+    // 1. Try UTF-16LE extraction (standard for Word 97-2003)
+    let utf16Str = '';
+    for (let i = 0; i < bytes.byteLength - 1; i += 2) {
+      const code = bytes[i] | (bytes[i + 1] << 8);
+      if (code === 0x0d || code === 0x0a) {
+        if (utf16Str.trim().length > 0) {
+          extractedParagraphs.push(utf16Str.trim());
+          utf16Str = '';
+        }
+      } else if ((code >= 32 && code <= 126) || (code >= 160 && code <= 65533)) {
+        utf16Str += String.fromCharCode(code);
+      } else {
+        if (utf16Str.trim().length >= 4) {
+          extractedParagraphs.push(utf16Str.trim());
+        }
+        utf16Str = '';
+      }
+    }
+    if (utf16Str.trim().length >= 4) {
+      extractedParagraphs.push(utf16Str.trim());
+    }
+
+    // 2. If UTF-16LE didn't find substantial text, try 8-bit ANSI runs
+    if (extractedParagraphs.length < 3) {
+      const ansiText = this.extractStringsFromBinary(bytes);
+      ansiText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 2)
+        .forEach((l) => extractedParagraphs.push(l));
+    }
+
+    // Filter out internal binary noise like "WordDocument", "SummaryInformation", font names
+    const filtered = extractedParagraphs.filter((line) => {
+      if (
+        /^(Root Entry|WordDocument|1Table|0Table|Data|SummaryInformation|DocumentSummaryInformation|CompObj)/i.test(
+          line
+        )
+      ) {
+        return false;
+      }
+      if (/^(Times New Roman|Arial|Calibri|Symbol|Wingdings|Courier New|Normal\.dotm?)$/i.test(line)) {
+        return false;
+      }
+      return line.length >= 2;
+    });
+
+    if (filtered.length === 0) {
+      return {
+        title,
+        paragraphs: [
+          { id: 'doc-title', type: 'h1', content: title, align: 'left' },
+          {
+            id: 'doc-empty',
+            type: 'p',
+            content: 'No readable text content extracted from legacy .doc binary stream.',
+            align: 'left',
+          },
+        ],
+        pageSize: 'A4',
+        margins: { top: 24, right: 28, bottom: 24, left: 28 },
+      };
+    }
+
+    // Classify paragraphs hierarchically
+    filtered.forEach((text, idx) => {
+      let type: DocParagraph['type'] = 'p';
+      let align: DocParagraph['align'] = 'left';
+
+      if (idx === 0) {
+        type = 'h1';
+      } else if (/^(\d+\.|\bSection\b|\bChapter\b|\bPart\b)/i.test(text) && text.length < 80) {
+        type = 'h2';
+      } else if (/^(\d+\.\d+|\bAppendix\b)/i.test(text) && text.length < 100) {
+        type = 'h3';
+      } else if (/^[•\-*\u2022\u2023]\s/.test(text)) {
+        type = 'bullet';
+      } else if (/^(Note|Warning|Important|Caution|Notice):/i.test(text)) {
+        type = 'callout';
+      } else if (text.length > 250) {
+        align = 'justify';
+      }
+
+      paragraphs.push({
+        id: `doc-p-${idx + 1}`,
+        type,
+        content: text.replace(/^[•\-*\u2022\u2023]\s*/, ''),
+        align,
+      });
+    });
+
+    return {
+      title,
+      paragraphs,
+      pageSize: 'A4',
+      margins: { top: 24, right: 28, bottom: 24, left: 28 },
     };
   }
 

@@ -17,12 +17,17 @@ let mainWindow = null;
 let ipcRegistered = false;
 
 function createMainWindow() {
+  const iconPath = path.join(__dirname, '../build/icon.ico');
+  const fallbackIcon = path.join(__dirname, '../public/favicon.ico');
+  const resolvedIcon = fs.existsSync(iconPath) ? iconPath : fallbackIcon;
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: APP_NAME,
+    icon: resolvedIcon,
     frame: false, // Completely removes Windows default caption, titlebar, and border
     autoHideMenuBar: true, // Completely hides and prevents Windows menu bar
     backgroundColor: '#0f172a',

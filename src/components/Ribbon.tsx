@@ -12,12 +12,17 @@ import {
   RotateCcw,
   RotateCw,
   Save,
-  DollarSign,
-  Percent,
-  Hash,
-  Upload,
-  Trash2,
   LayoutTemplate,
+  FileText,
+  Table as TableIcon,
+  Presentation,
+  Printer,
+  Sparkles,
+  List,
+  ListOrdered,
+  FolderOpen,
+  Info,
+  Trash2,
 } from 'lucide-react';
 
 interface RibbonProps {
@@ -28,7 +33,7 @@ interface RibbonProps {
   canRedo: boolean;
   onSave: () => void;
   onOpenFile: (file: File) => void;
-  onExport: (format: 'bundle' | 'html' | 'csv' | 'markdown' | 'print') => void;
+  onExport: (format: 'docx' | 'xlsx' | 'pptx' | 'pdf' | 'csv' | 'markdown' | 'html' | 'bundle' | 'print') => void;
   onOpenTemplates: () => void;
   darkMode: boolean;
 
@@ -37,7 +42,7 @@ interface RibbonProps {
   onFormatChange?: (format: Partial<CellStyle>) => void;
 
   // App specific actions
-  onInsertDocParagraph?: (type: 'h1' | 'h2' | 'p' | 'bullet' | 'callout' | 'table') => void;
+  onInsertDocParagraph?: (type: 'h1' | 'h2' | 'p' | 'bullet' | 'number' | 'callout' | 'table' | 'image' | 'hr') => void;
   onInsertFormula?: (formula: string) => void;
   onAddSheetRow?: () => void;
   onAddSheetCol?: () => void;
@@ -68,8 +73,10 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onStartSlideshow,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'insert' | 'layout' | 'view'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'insert' | 'layout' | 'formulas' | 'view'>('home');
   const [showFileMenu, setShowFileMenu] = useState<boolean>(false);
+  const [selectedFont, setSelectedFont] = useState<string>('Calibri');
+  const [selectedFontSize, setSelectedFontSize] = useState<number>(11);
 
   // Microsoft Brand Accent Color depending on app mode
   const themeColor =
@@ -113,7 +120,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowFileMenu(!showFileMenu)}
-            className="px-3.5 py-1.5 font-bold text-white rounded-t-sm transition-colors shadow-xs"
+            className="px-4 py-1.5 font-bold text-white rounded-t-sm transition-colors shadow-xs"
             style={{ backgroundColor: themeColor }}
           >
             File
@@ -121,7 +128,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
 
           {/* Microsoft Backstage File Menu Dropdown */}
           {showFileMenu && (
-            <div className="absolute left-0 top-full mt-0.5 w-64 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-b-lg shadow-2xl py-2 z-50 animate-fadeIn text-xs">
+            <div className="absolute left-0 top-full mt-0.5 w-72 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-b-lg shadow-2xl py-2 z-50 animate-fadeIn text-xs max-h-[85vh] overflow-y-auto">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -131,14 +138,27 @@ export const Ribbon: React.FC<RibbonProps> = ({
               />
 
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  if (window.electronAPI?.openNativeFileDialog) {
+                    window.electronAPI.openNativeFileDialog().then((result: any) => {
+                      if (result && result.buffer) {
+                        const uint8 = new Uint8Array(result.buffer);
+                        const file = new File([uint8], result.name);
+                        onOpenFile(file);
+                        setShowFileMenu(false);
+                      }
+                    });
+                  } else {
+                    fileInputRef.current?.click();
+                  }
+                }}
                 className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium flex items-center justify-between"
               >
                 <div className="flex items-center space-x-2">
-                  <Upload className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Open from PC...</span>
+                  <FolderOpen className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Open Document...</span>
                 </div>
-                <span className="text-[10px] text-slate-400">All Office Formats</span>
+                <span className="text-[10px] text-slate-400">Ctrl+O</span>
               </button>
 
               <button
@@ -146,10 +166,13 @@ export const Ribbon: React.FC<RibbonProps> = ({
                   onSave();
                   setShowFileMenu(false);
                 }}
-                className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center space-x-2 font-medium"
+                className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between font-medium"
               >
-                <Save className="w-3.5 h-3.5 text-blue-500" />
-                <span>Save (Ctrl+S)</span>
+                <div className="flex items-center space-x-2">
+                  <Save className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Save</span>
+                </div>
+                <span className="text-[10px] text-slate-400">Ctrl+S</span>
               </button>
 
               <button
@@ -165,359 +188,538 @@ export const Ribbon: React.FC<RibbonProps> = ({
 
               <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
 
+              {/* SAVE AS / EXPORT OPTIONS (Parity with MS Office) */}
               <div className="px-4 py-1 text-[10px] uppercase font-bold text-slate-400">
-                Load Sample Documents
+                Save As / Export Formats
               </div>
               <button
-                onClick={() => openSampleUrl('/samples/sample_word.docx', 'sample_word.docx')}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
+                onClick={() => {
+                  onExport('docx');
+                  setShowFileMenu(false);
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between font-semibold text-[#185abd] dark:text-blue-400"
               >
-                <span>Word Sample Document</span>
-                <span className="font-mono text-[10px] text-blue-500">.docx</span>
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Microsoft Word (.docx)</span>
+                </div>
+                <span className="font-mono text-[10px]">OOXML</span>
               </button>
               <button
-                onClick={() => openSampleUrl('/samples/sample_libreoffice.odt', 'sample_libreoffice.odt')}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
+                onClick={() => {
+                  onExport('xlsx');
+                  setShowFileMenu(false);
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between font-semibold text-[#107c41] dark:text-emerald-400"
               >
-                <span>LibreOffice Writer</span>
-                <span className="font-mono text-[10px] text-blue-500">.odt</span>
+                <div className="flex items-center space-x-2">
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span>Microsoft Excel (.xlsx)</span>
+                </div>
+                <span className="font-mono text-[10px]">OOXML</span>
               </button>
               <button
-                onClick={() => openSampleUrl('/samples/sample_excel.xlsx', 'sample_excel.xlsx')}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
+                onClick={() => {
+                  onExport('pptx');
+                  setShowFileMenu(false);
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between font-semibold text-[#c43e1c] dark:text-orange-400"
               >
-                <span>Excel Spreadsheet</span>
-                <span className="font-mono text-[10px] text-emerald-500">.xlsx</span>
+                <div className="flex items-center space-x-2">
+                  <Presentation className="w-3.5 h-3.5" />
+                  <span>Microsoft PowerPoint (.pptx)</span>
+                </div>
+                <span className="font-mono text-[10px]">OOXML</span>
               </button>
               <button
-                onClick={() => openSampleUrl('/samples/sample_librecalc.ods', 'sample_librecalc.ods')}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
+                onClick={() => {
+                  onExport('pdf');
+                  setShowFileMenu(false);
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between font-semibold text-rose-600 dark:text-rose-400"
               >
-                <span>LibreOffice Calc</span>
-                <span className="font-mono text-[10px] text-emerald-500">.ods</span>
+                <div className="flex items-center space-x-2">
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>PDF Document (.pdf)</span>
+                </div>
+                <span className="font-mono text-[10px]">Print</span>
               </button>
               <button
-                onClick={() => openSampleUrl('/samples/sample_powerpoint.pptx', 'sample_powerpoint.pptx')}
+                onClick={() => {
+                  onExport('csv');
+                  setShowFileMenu(false);
+                }}
                 className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
               >
-                <span>PowerPoint Presentation</span>
-                <span className="font-mono text-[10px] text-orange-500">.pptx</span>
+                <span>Comma-Separated Values (.csv)</span>
+                <span className="font-mono text-[10px] text-slate-400">CSV</span>
               </button>
               <button
-                onClick={() => openSampleUrl('/samples/sample_whitepaper.pdf', 'sample_whitepaper.pdf')}
+                onClick={() => {
+                  onExport('markdown');
+                  setShowFileMenu(false);
+                }}
                 className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
               >
-                <span>PDF Technical Whitepaper</span>
-                <span className="font-mono text-[10px] text-red-500 font-bold">.pdf</span>
+                <span>Markdown Document (.md)</span>
+                <span className="font-mono text-[10px] text-slate-400">MD</span>
               </button>
-
-              <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
-
-              <div className="px-4 py-1 text-[10px] uppercase font-bold text-slate-400">
-                Export Options
-              </div>
+              <button
+                onClick={() => {
+                  onExport('html');
+                  setShowFileMenu(false);
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
+              >
+                <span>Web Page (.html)</span>
+                <span className="font-mono text-[10px] text-slate-400">HTML</span>
+              </button>
               <button
                 onClick={() => {
                   onExport('bundle');
                   setShowFileMenu(false);
                 }}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium text-blue-600 dark:text-blue-400"
+                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
               >
-                Export Unified .anything Bundle
+                <span>Anything Unified Bundle (.anything)</span>
+                <span className="font-mono text-[10px] text-violet-500">JSON</span>
+              </button>
+
+              <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+
+              <div className="px-4 py-1 text-[10px] uppercase font-bold text-slate-400">
+                Load Test Samples
+              </div>
+              <button
+                onClick={() => openSampleUrl('/samples/sample_word.docx', 'sample_word.docx')}
+                className="w-full text-left px-4 py-1 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between text-[11px]"
+              >
+                <span>Word Sample (.docx)</span>
+                <span className="font-mono text-[10px] text-blue-500">Load</span>
               </button>
               <button
-                onClick={() => {
-                  onExport('print');
-                  setShowFileMenu(false);
-                }}
-                className="w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={() => openSampleUrl('/samples/sample_excel.xlsx', 'sample_excel.xlsx')}
+                className="w-full text-left px-4 py-1 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between text-[11px]"
               >
-                Print / Save as PDF
+                <span>Excel Sample (.xlsx)</span>
+                <span className="font-mono text-[10px] text-emerald-500">Load</span>
+              </button>
+              <button
+                onClick={() => openSampleUrl('/samples/sample_powerpoint.pptx', 'sample_powerpoint.pptx')}
+                className="w-full text-left px-4 py-1 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between text-[11px]"
+              >
+                <span>PowerPoint Sample (.pptx)</span>
+                <span className="font-mono text-[10px] text-orange-500">Load</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Standard Microsoft Fluent Ribbon Tabs */}
+        {/* Fluent Ribbon Tabs */}
         {[
           { id: 'home', label: 'Home' },
           { id: 'insert', label: 'Insert' },
-          {
-            id: 'layout',
-            label:
-              appMode === 'docs' ? 'Layout' : appMode === 'sheets' ? 'Formulas' : 'Slide Show',
-          },
+          { id: 'layout', label: appMode === 'docs' ? 'Layout' : appMode === 'sheets' ? 'Formulas' : 'Slide Show' },
           { id: 'view', label: 'View' },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3.5 py-1.5 font-semibold transition-colors relative rounded-t-sm ${
+            className={`px-3 py-1 font-medium transition-colors border-b-2 ${
               activeTab === tab.id
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
+                ? 'border-b-2 text-slate-900 dark:text-white font-semibold'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
+            style={{
+              borderBottomColor: activeTab === tab.id ? themeColor : 'transparent',
+            }}
           >
-            <span>{tab.label}</span>
-            {activeTab === tab.id && (
-              <span
-                className="absolute bottom-0 left-0 right-0 h-0.5"
-                style={{ backgroundColor: themeColor }}
-              />
-            )}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* 2. AUTHENTIC MICROSOFT RIBBON ACTION GROUPS (With Dividers and Bottom Labels) */}
-      <div className="flex items-stretch px-3 py-1.5 bg-white dark:bg-slate-800 overflow-x-auto min-h-[58px]">
-        {/* GROUP 1: UNDO / CLIPBOARD */}
-        <div className="flex flex-col justify-between items-center pr-3 border-r border-slate-200 dark:border-slate-700">
-          <div className="flex items-center space-x-1">
-            <button
-              onClick={onUndo}
-              disabled={!canUndo}
-              title="Undo (Ctrl+Z)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={onRedo}
-              disabled={!canRedo}
-              title="Redo (Ctrl+Y)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-            Undo
-          </span>
-        </div>
-
-        {/* GROUP 2: FONT FORMATTING (Bold, Italic, Underline) */}
-        <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
-          <div className="flex items-center space-x-1">
-            <button
-              onClick={() => onFormatChange?.({ bold: !activeFormat.bold })}
-              title="Bold (Ctrl+B)"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.bold
-                  ? 'bg-slate-200 dark:bg-slate-600 font-bold'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <Bold className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => onFormatChange?.({ italic: !activeFormat.italic })}
-              title="Italic (Ctrl+I)"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.italic
-                  ? 'bg-slate-200 dark:bg-slate-600'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <Italic className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => onFormatChange?.({ underline: !activeFormat.underline })}
-              title="Underline (Ctrl+U)"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.underline
-                  ? 'bg-slate-200 dark:bg-slate-600'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <Underline className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-            Font
-          </span>
-        </div>
-
-        {/* GROUP 3: PARAGRAPH ALIGNMENT */}
-        <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
-          <div className="flex items-center space-x-1">
-            <button
-              onClick={() => onFormatChange?.({ align: 'left' })}
-              title="Align Left"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.align === 'left' || !activeFormat.align
-                  ? 'bg-slate-200 dark:bg-slate-600'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <AlignLeft className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => onFormatChange?.({ align: 'center' })}
-              title="Align Center"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.align === 'center'
-                  ? 'bg-slate-200 dark:bg-slate-600'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <AlignCenter className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => onFormatChange?.({ align: 'right' })}
-              title="Align Right"
-              className={`p-1.5 rounded transition-colors ${
-                activeFormat.align === 'right'
-                  ? 'bg-slate-200 dark:bg-slate-600'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <AlignRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-            Paragraph
-          </span>
-        </div>
-
-        {/* GROUP 4: APP MODE SPECIFIC COMMAND GROUPS */}
-        {appMode === 'docs' && (
-          <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
-            <div className="flex items-center space-x-1">
+      {/* 2. AUTHENTIC RIBBON ACTION TOOLBAR */}
+      <div className="flex items-center justify-between px-3 py-1.5 overflow-x-auto min-h-[46px]">
+        {/* TAB: HOME */}
+        {activeTab === 'home' && (
+          <div className="flex items-center space-x-3 shrink-0">
+            {/* Clipboard group */}
+            <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
               <button
-                onClick={() => onInsertDocParagraph?.('h1')}
-                className="px-2 py-1 text-xs font-bold rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z)"
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30"
               >
-                Heading 1
+                <RotateCcw className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onInsertDocParagraph?.('h2')}
-                className="px-2 py-1 text-xs font-semibold rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title="Redo (Ctrl+Y)"
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30"
               >
-                Heading 2
-              </button>
-              <button
-                onClick={() => onInsertDocParagraph?.('bullet')}
-                className="px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700"
-              >
-                Bullet
-              </button>
-              <button
-                onClick={() => onInsertDocParagraph?.('table')}
-                className="px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold"
-              >
-                + Table
+                <RotateCw className="w-3.5 h-3.5" />
               </button>
             </div>
-            <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-              Styles & Content
-            </span>
-          </div>
-        )}
 
-        {appMode === 'sheets' && (
-          <>
-            <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
+            {/* Font Family & Size Dropdowns */}
+            <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
+              <select
+                value={selectedFont}
+                onChange={(e) => setSelectedFont(e.target.value)}
+                className="h-6 px-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none"
+              >
+                <option value="Calibri">Calibri</option>
+                <option value="Aptos">Aptos</option>
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Segoe UI">Segoe UI</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Courier New">Courier New</option>
+              </select>
+
+              <select
+                value={selectedFontSize}
+                onChange={(e) => setSelectedFontSize(Number(e.target.value))}
+                className="h-6 px-1 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none"
+              >
+                <option value={9}>9</option>
+                <option value={10}>10</option>
+                <option value={11}>11</option>
+                <option value={12}>12</option>
+                <option value={14}>14</option>
+                <option value={16}>16</option>
+                <option value={18}>18</option>
+                <option value={20}>20</option>
+                <option value={24}>24</option>
+                <option value={28}>28</option>
+                <option value={36}>36</option>
+              </select>
+            </div>
+
+            {/* Typography Formatting: Bold, Italic, Underline, Strike */}
+            <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
+              <button
+                onClick={() => onFormatChange?.({ bold: !activeFormat?.bold })}
+                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+                  activeFormat?.bold ? 'bg-slate-300 dark:bg-slate-700 font-bold' : ''
+                }`}
+                title="Bold (Ctrl+B)"
+              >
+                <Bold className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onFormatChange?.({ italic: !activeFormat?.italic })}
+                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+                  activeFormat?.italic ? 'bg-slate-300 dark:bg-slate-700' : ''
+                }`}
+                title="Italic (Ctrl+I)"
+              >
+                <Italic className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onFormatChange?.({ underline: !activeFormat?.underline })}
+                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+                  activeFormat?.underline ? 'bg-slate-300 dark:bg-slate-700' : ''
+                }`}
+                title="Underline (Ctrl+U)"
+              >
+                <Underline className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Paragraph Alignment */}
+            <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
+              <button
+                onClick={() => onFormatChange?.({ align: 'left' })}
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+                title="Align Left (Ctrl+L)"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onFormatChange?.({ align: 'center' })}
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+                title="Center (Ctrl+E)"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onFormatChange?.({ align: 'right' })}
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+                title="Align Right (Ctrl+R)"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Heading Styles (in Docs) */}
+            {appMode === 'docs' && onInsertDocParagraph && (
               <div className="flex items-center space-x-1">
                 <button
-                  onClick={() => onFormatChange?.({ format: 'currency' })}
-                  title="Format Currency ($)"
-                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={() => onInsertDocParagraph('h1')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 font-bold text-xs text-[#185abd] dark:text-blue-400"
                 >
-                  <DollarSign className="w-3.5 h-3.5" />
+                  Heading 1
                 </button>
                 <button
-                  onClick={() => onFormatChange?.({ format: 'percent' })}
-                  title="Format Percentage (%)"
-                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={() => onInsertDocParagraph('h2')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 font-semibold text-xs"
                 >
-                  <Percent className="w-3.5 h-3.5" />
+                  Heading 2
                 </button>
                 <button
-                  onClick={() => onFormatChange?.({ format: 'number' })}
-                  title="Format Number"
-                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={() => onInsertDocParagraph('bullet')}
+                  className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+                  title="Bullet List"
                 >
-                  <Hash className="w-3.5 h-3.5" />
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onInsertDocParagraph('number')}
+                  className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+                  title="Numbered List"
+                >
+                  <ListOrdered className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-                Number
-              </span>
-            </div>
+            )}
 
-            <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
+            {/* Quick Math Formats (in Sheets) */}
+            {appMode === 'sheets' && (
               <div className="flex items-center space-x-1">
                 <button
-                  onClick={() => onInsertFormula?.('=SUM(A1:A5)')}
-                  className="px-2 py-1 text-xs font-mono font-bold rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400"
+                  onClick={() => onInsertFormula?.('=SUM(B2:B10)')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 font-mono font-bold text-xs text-[#107c41] dark:text-emerald-400"
                 >
                   ∑ AutoSum
                 </button>
                 <button
-                  onClick={() => onInsertFormula?.('=AVERAGE(A1:A5)')}
-                  className="px-2 py-1 text-xs font-mono rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={() => onInsertFormula?.('=AVERAGE(B2:B10)')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 font-mono text-xs"
                 >
                   Average
                 </button>
               </div>
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-                Formulas
-              </span>
-            </div>
+            )}
 
-            <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
+            {/* Quick Actions (in Slides) */}
+            {appMode === 'slides' && onAddSlide && (
               <div className="flex items-center space-x-1">
                 <button
-                  onClick={onAddSheetRow}
-                  className="px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={() => onAddSlide('title-bullets')}
+                  className="px-2.5 py-0.5 rounded bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs flex items-center space-x-1"
                 >
-                  + Row
+                  <Plus className="w-3 h-3" />
+                  <span>New Slide</span>
+                </button>
+                {onDeleteSlide && (
+                  <button
+                    onClick={onDeleteSlide}
+                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-rose-500"
+                    title="Delete Slide"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {onStartSlideshow && (
+                  <button
+                    onClick={onStartSlideshow}
+                    className="px-2.5 py-0.5 rounded border border-orange-500/50 hover:bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold text-xs flex items-center space-x-1"
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    <span>From Beginning (F5)</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: INSERT */}
+        {activeTab === 'insert' && (
+          <div className="flex items-center space-x-2 shrink-0">
+            {appMode === 'docs' && onInsertDocParagraph && (
+              <>
+                <button
+                  onClick={() => onInsertDocParagraph('table')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <TableIcon className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Table</span>
+                </button>
+                <button
+                  onClick={() => onInsertDocParagraph('image')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Image Figure</span>
+                </button>
+                <button
+                  onClick={() => onInsertDocParagraph('callout')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <Info className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Callout Note</span>
+                </button>
+                <button
+                  onClick={() => onInsertDocParagraph('hr')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <span>Horizontal Line</span>
+                </button>
+              </>
+            )}
+
+            {appMode === 'sheets' && (
+              <>
+                <button
+                  onClick={onAddSheetRow}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Insert Rows</span>
                 </button>
                 <button
                   onClick={onAddSheetCol}
-                  className="px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
                 >
-                  + Column
+                  <Plus className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Insert Columns</span>
                 </button>
-              </div>
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-                Cells
-              </span>
-            </div>
-          </>
-        )}
+              </>
+            )}
 
-        {appMode === 'slides' && (
-          <div className="flex flex-col justify-between items-center px-3 border-r border-slate-200 dark:border-slate-700">
-            <div className="flex items-center space-x-1">
-              <button
-                onClick={() => onAddSlide?.('title-bullets')}
-                className="flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded bg-orange-600 text-white hover:bg-orange-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New Slide</span>
-              </button>
-              <button
-                onClick={onStartSlideshow}
-                className="flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-700"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>From Beginning (F5)</span>
-              </button>
-              <button
-                onClick={onDeleteSlide}
-                className="p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
-                title="Delete Current Slide"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mt-1">
-              Slide Show
-            </span>
+            {appMode === 'slides' && onAddSlide && (
+              <>
+                <button
+                  onClick={() => onAddSlide('title')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <span>Title Slide</span>
+                </button>
+                <button
+                  onClick={() => onAddSlide('two-column')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <span>Two Columns</span>
+                </button>
+                <button
+                  onClick={() => onAddSlide('metric-highlight')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <span>Metrics Highlight</span>
+                </button>
+              </>
+            )}
           </div>
         )}
+
+        {/* TAB: LAYOUT / FORMULAS / SLIDESHOW */}
+        {activeTab === 'layout' && (
+          <div className="flex items-center space-x-2 shrink-0">
+            {appMode === 'docs' && (
+              <div className="flex items-center space-x-2">
+                <span className="text-[11px] font-semibold text-slate-500">Page Setup:</span>
+                <button
+                  onClick={() => onExport('print')}
+                  className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center space-x-1"
+                >
+                  <Printer className="w-3 h-3" />
+                  <span>Print Setup</span>
+                </button>
+              </div>
+            )}
+
+            {appMode === 'sheets' && (
+              <div className="flex items-center space-x-2">
+                <span className="text-[11px] font-semibold text-slate-500">Formulas Library:</span>
+                <button
+                  onClick={() => onInsertFormula?.('=SUM(B2:B10)')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  SUM
+                </button>
+                <button
+                  onClick={() => onInsertFormula?.('=IF(B2>100, "Target Reached", "Needs Work")')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  IF
+                </button>
+                <button
+                  onClick={() => onInsertFormula?.('=VLOOKUP(A2, A1:D10, 2)')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  VLOOKUP
+                </button>
+                <button
+                  onClick={() => onInsertFormula?.('=COUNTIF(B2:B20, ">100")')}
+                  className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  COUNTIF
+                </button>
+              </div>
+            )}
+
+            {appMode === 'slides' && onStartSlideshow && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={onStartSlideshow}
+                  className="px-3 py-1 rounded bg-[#c43e1c] hover:bg-orange-700 text-white font-medium flex items-center space-x-1.5"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Start Slide Show from First Slide (F5)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: VIEW */}
+        {activeTab === 'view' && (
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="flex items-center space-x-1.5 text-xs text-slate-600 dark:text-slate-300">
+              <span className="font-semibold">Live Edit Integration:</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">
+                Proxy available at localhost:4321
+              </span>
+            </div>
+            <button
+              onClick={() => onOpenTemplates()}
+              className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center space-x-1"
+            >
+              <LayoutTemplate className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Templates Gallery</span>
+            </button>
+          </div>
+        )}
+
+        {/* Quick Save Indicator Button on Right */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => onExport('docx')}
+            title="Export as Microsoft Word (.docx)"
+            className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+          >
+            <span>Word (.docx)</span>
+          </button>
+          <button
+            onClick={() => onExport('xlsx')}
+            title="Export as Microsoft Excel (.xlsx)"
+            className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+          >
+            <span>Excel (.xlsx)</span>
+          </button>
+          <button
+            onClick={() => onExport('pptx')}
+            title="Export as Microsoft PowerPoint (.pptx)"
+            className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/40"
+          >
+            <span>PowerPoint (.pptx)</span>
+          </button>
+        </div>
       </div>
     </header>
   );

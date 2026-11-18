@@ -25,7 +25,9 @@ interface TitleBarProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  onExport: (format: 'bundle' | 'html' | 'csv' | 'markdown' | 'print') => void;
+  onExport: (
+    format: 'docx' | 'xlsx' | 'pptx' | 'pdf' | 'csv' | 'markdown' | 'html' | 'bundle' | 'print'
+  ) => void;
   darkMode: boolean;
   setDarkMode: (val: boolean) => void;
 }

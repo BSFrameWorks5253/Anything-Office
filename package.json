@@ -20,7 +20,9 @@
     "build:exe": "npm run build && electron-builder --win nsis",
     "release": "npm run build && electron-builder --win nsis --publish always",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:icons": "node ./node_modules/electron/cli.js build/generate-icons.cjs",
+    "live": "node .agent/skills/live-edit/scripts/live.mjs start"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -57,9 +59,12 @@
       "dist/**/*",
       "electron/**/*",
       "package.json",
-      "loader-config.json"
+      "loader-config.json",
+      "build/icon.ico",
+      "build/icon.png"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -77,6 +82,9 @@
       "uninstallDisplayName": "Anything Office",
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "artifactName": "Anything-Office-Setup-${version}.${ext}"
     }
   }

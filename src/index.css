@@ -42,3 +42,40 @@
     overflow: visible !important;
   }
 }
+
+/* PowerPoint Slide Transitions */
+@keyframes slideTransitionFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideTransitionLeft {
+  from { opacity: 0; transform: translateX(80px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideTransitionUp {
+  from { opacity: 0; transform: translateY(60px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideTransitionZoom {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.transition-slide-fade {
+  animation: slideTransitionFade 0.4s ease-in-out forwards;
+}
+
+.transition-slide-left {
+  animation: slideTransitionLeft 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.transition-slide-up {
+  animation: slideTransitionUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.transition-slide-zoom {
+  animation: slideTransitionZoom 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

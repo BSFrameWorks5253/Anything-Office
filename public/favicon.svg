@@ -1,47 +1,132 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <!-- Deep Obsidian Canvas Background -->
-    <linearGradient id="adobeBg" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#0a101d" />
-      <stop offset="100%" stop-color="#030712" />
+    <!-- Deep Titanium Obsidian Background Gradient -->
+    <radialGradient id="aoBg" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#141c2e" />
+      <stop offset="60%" stop-color="#0a0f1d" />
+      <stop offset="100%" stop-color="#03060d" />
+    </radialGradient>
+
+    <!-- Metallic Rim Highlight Stroke -->
+    <linearGradient id="aoRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.6" />
+      <stop offset="30%" stop-color="#ffffff" stop-opacity="0.3" />
+      <stop offset="70%" stop-color="#6366f1" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.4" />
     </linearGradient>
 
-    <!-- Adobe Signature App Border (Electric Cyan / Royal Blue) -->
-    <linearGradient id="adobeBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#0284c7" />
+    <!-- Subtle Outer Glow -->
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Subtle Drop Shadow for Elements -->
+    <filter id="ribbonShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.5" />
+    </filter>
+
+    <!-- Palette Gradients representing the 4 Unified Pillars -->
+    <!-- 1. Word / Docs: Sapphire to Sky -->
+    <linearGradient id="gradDocs" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1e40af" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#38bdf8" />
     </linearGradient>
 
-    <!-- Adobe Monogram Fill (Iconic Adobe Cyan) -->
-    <linearGradient id="adobeText" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#0ea5e9" />
+    <!-- 2. Excel / Sheets: Emerald to Mint -->
+    <linearGradient id="gradSheets" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="50%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+
+    <!-- 3. PowerPoint / Slides: Amber to Solar Gold -->
+    <linearGradient id="gradSlides" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="50%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#ea580c" />
+    </linearGradient>
+
+    <!-- 4. Acrobat / PDF: Crimson to Coral Rose -->
+    <linearGradient id="gradPdf" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" />
+      <stop offset="60%" stop-color="#e11d48" />
+      <stop offset="100%" stop-color="#9f1239" />
+    </linearGradient>
+
+    <!-- Inner Core Specular Shimmer -->
+    <linearGradient id="gradCore" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.6" />
     </linearGradient>
   </defs>
 
-  <!-- Adobe Signature Squircle (22% radius) -->
+  <!-- 1. Smooth Squircle Icon Base (24% corner curvature) -->
   <rect
     x="32"
     y="32"
     width="448"
     height="448"
-    rx="108"
-    ry="108"
-    fill="url(#adobeBg)"
-    stroke="url(#adobeBorder)"
-    stroke-width="20"
+    rx="112"
+    ry="112"
+    fill="url(#aoBg)"
+    stroke="url(#aoRim)"
+    stroke-width="4"
   />
 
-  <!-- Authentic Centered Adobe Two-Letter Monogram "Ao" (Anything Office) -->
-  <text
-    x="256"
-    y="272"
-    text-anchor="middle"
-    dominant-baseline="central"
-    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-    font-size="224"
-    font-weight="900"
-    letter-spacing="-6"
-    fill="url(#adobeText)"
-  >Ao</text>
+  <!-- Subtle Inner Ambient Rim Light -->
+  <rect
+    x="36"
+    y="36"
+    width="440"
+    height="440"
+    rx="108"
+    ry="108"
+    fill="none"
+    stroke="#ffffff"
+    stroke-opacity="0.06"
+    stroke-width="1.5"
+  />
+
+  <!-- 2. Master Geometric Emblem: Minimalist Unified "A" Prism -->
+  <g filter="url(#ribbonShadow)">
+    <!-- Crown Facet (PDF / Acrobat Crimson) at Apex -->
+    <path
+      d="M 256 100 L 296 156 L 256 186 L 216 156 Z"
+      fill="url(#gradPdf)"
+    />
+
+    <!-- Left Pillar (Word / Docs Sapphire Blue) -->
+    <path
+      d="M 256 100 L 216 156 L 152 356 C 146 374 158 392 178 392 L 208 392 C 222 392 234 382 238 368 L 262 284 L 230 284 L 256 200 Z"
+      fill="url(#gradDocs)"
+    />
+
+    <!-- Right Pillar (Excel / Sheets Emerald Jade) -->
+    <path
+      d="M 256 100 L 296 156 L 360 356 C 366 374 354 392 334 392 L 304 392 C 290 392 278 382 274 368 L 250 284 L 282 284 L 256 200 Z"
+      fill="url(#gradSheets)"
+    />
+
+    <!-- Floating Crossbar Dynamic Horizon (PowerPoint / Slides Solar Amber) -->
+    <rect
+      x="180"
+      y="266"
+      width="152"
+      height="36"
+      rx="18"
+      ry="18"
+      fill="url(#gradSlides)"
+      filter="url(#softGlow)"
+    />
+
+    <!-- Apex Illuminant Jewel (Central Precision Spark) -->
+    <circle
+      cx="256"
+      cy="146"
+      r="10"
+      fill="url(#gradCore)"
+    />
+  </g>
 </svg>
