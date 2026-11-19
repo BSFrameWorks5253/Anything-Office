@@ -402,7 +402,10 @@ export const Ribbon: React.FC<RibbonProps> = ({
             {/* Typography Formatting: Bold, Italic, Underline, Strike */}
             <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
               <button
-                onClick={() => onFormatChange?.({ bold: !activeFormat?.bold })}
+                onClick={() => {
+                  document.execCommand('bold', false);
+                  onFormatChange?.({ bold: !activeFormat?.bold });
+                }}
                 className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
                   activeFormat?.bold ? 'bg-slate-300 dark:bg-slate-700 font-bold' : ''
                 }`}
@@ -411,7 +414,10 @@ export const Ribbon: React.FC<RibbonProps> = ({
                 <Bold className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onFormatChange?.({ italic: !activeFormat?.italic })}
+                onClick={() => {
+                  document.execCommand('italic', false);
+                  onFormatChange?.({ italic: !activeFormat?.italic });
+                }}
                 className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
                   activeFormat?.italic ? 'bg-slate-300 dark:bg-slate-700' : ''
                 }`}
@@ -420,7 +426,10 @@ export const Ribbon: React.FC<RibbonProps> = ({
                 <Italic className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onFormatChange?.({ underline: !activeFormat?.underline })}
+                onClick={() => {
+                  document.execCommand('underline', false);
+                  onFormatChange?.({ underline: !activeFormat?.underline });
+                }}
                 className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
                   activeFormat?.underline ? 'bg-slate-300 dark:bg-slate-700' : ''
                 }`}
@@ -433,21 +442,30 @@ export const Ribbon: React.FC<RibbonProps> = ({
             {/* Paragraph Alignment */}
             <div className="flex items-center space-x-1 border-r border-slate-300 dark:border-slate-700 pr-2">
               <button
-                onClick={() => onFormatChange?.({ align: 'left' })}
+                onClick={() => {
+                  document.execCommand('justifyLeft', false);
+                  onFormatChange?.({ align: 'left' });
+                }}
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
                 title="Align Left (Ctrl+L)"
               >
                 <AlignLeft className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onFormatChange?.({ align: 'center' })}
+                onClick={() => {
+                  document.execCommand('justifyCenter', false);
+                  onFormatChange?.({ align: 'center' });
+                }}
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
                 title="Center (Ctrl+E)"
               >
                 <AlignCenter className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onFormatChange?.({ align: 'right' })}
+                onClick={() => {
+                  document.execCommand('justifyRight', false);
+                  onFormatChange?.({ align: 'right' });
+                }}
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
                 title="Align Right (Ctrl+R)"
               >

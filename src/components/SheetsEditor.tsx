@@ -281,6 +281,124 @@ export const SheetsEditor: React.FC<SheetsEditorProps> = ({
     setIsEditing(false);
   };
 
+  // Clipboard TSV Copy & Paste
+  const copySelectedToClipboard = async () => {
+    let tsv = '';
+    if (selectionRange) {
+      const p1 = FormulaEngine.parseCellId(selectionRange.start);
+      const p2 = FormulaEngine.parseCellId(selectionRange.end);
+      if (p1 && p2) {
+        const minR = Math.min(p1.row, p2.row);
+        const maxR = Math.max(p1.row, p2.row);
+        const minC = Math.min(p1.col, p2.col);
+        const maxC = Math.max(p1.col, p2.col);
+        const rows: string[] = [];
+        for (let r = minR; r <= maxR; r++) {
+          const rowVals: string[] = [];
+          for (let c = minC; c <= maxC; c++) {
+            const k = FormulaEngine.toCellId(c, r);
+            const cell = activeSheet.cells[k];
+            rowVals.push(cell?.raw ?? '');
+          }
+          rows.push(rowVals.join('\t'));
+        }
+        tsv = rows.join('\n');
+      }
+    } else {
+      tsv = activeSheet.cells[selectedCell]?.raw ?? '';
+    }
+    try {
+      await navigator.clipboard.writeText(tsv);
+    } catch (err) {
+      console.warn('Clipboard write failed', err);
+    }
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const startPos = FormulaEngine.parseCellId(selectedCell);
+      if (!startPos) return;
+
+      const rows = text.replace(/\r/g, '').split('\n');
+      if (rows.length === 0) return;
+
+      const newCells = { ...activeSheet.cells };
+      let maxR = activeSheet.rowCount;
+      let maxC = activeSheet.colCount;
+
+      rows.forEach((rowStr, rOffset) => {
+        if (rowStr === '' && rOffset === rows.length - 1) return;
+        const cols = rowStr.split('\t');
+        cols.forEach((val, cOffset) => {
+          const targetR = startPos.row + rOffset;
+          const targetC = startPos.col + cOffset;
+          if (targetR + 1 > maxR) maxR = targetR + 1;
+          if (targetC + 1 > maxC) maxC = targetC + 1;
+          const key = FormulaEngine.toCellId(targetC, targetR);
+          newCells[key] = { ...(newCells[key] || {}), raw: val };
+        });
+      });
+
+      const newSheets = data.sheets.map((s) =>
+        s.id === activeSheet.id ? { ...s, rowCount: maxR, colCount: maxC, cells: newCells } : s
+      );
+      onChange({ ...data, sheets: newSheets });
+    } catch (err) {
+      console.warn('Clipboard read failed', err);
+    }
+  };
+
+  // Instant AutoSum (Alt+= or Sigma button)
+  const insertAutoSum = () => {
+    const pos = FormulaEngine.parseCellId(selectedCell);
+    if (!pos) return;
+
+    // 1. Check numbers directly above
+    let startRowAbove = -1;
+    for (let r = pos.row - 1; r >= 0; r--) {
+      const k = FormulaEngine.toCellId(pos.col, r);
+      const val = computedSheet[k]?.value;
+      if (typeof val === 'number') {
+        startRowAbove = r;
+      } else {
+        break;
+      }
+    }
+
+    if (startRowAbove !== -1) {
+      const formula = `=SUM(${FormulaEngine.toCellId(pos.col, startRowAbove)}:${FormulaEngine.toCellId(pos.col, pos.row - 1)})`;
+      updateCellRaw(selectedCell, formula);
+      setEditValue(formula);
+      return;
+    }
+
+    // 2. Check numbers to the left
+    let startColLeft = -1;
+    for (let c = pos.col - 1; c >= 0; c--) {
+      const k = FormulaEngine.toCellId(c, pos.row);
+      const val = computedSheet[k]?.value;
+      if (typeof val === 'number') {
+        startColLeft = c;
+      } else {
+        break;
+      }
+    }
+
+    if (startColLeft !== -1) {
+      const formula = `=SUM(${FormulaEngine.toCellId(startColLeft, pos.row)}:${FormulaEngine.toCellId(pos.col - 1, pos.row)})`;
+      updateCellRaw(selectedCell, formula);
+      setEditValue(formula);
+      return;
+    }
+
+    // Fallback default
+    const defaultFormula = `=SUM(${FormulaEngine.toCellId(pos.col, 0)}:${FormulaEngine.toCellId(pos.col, Math.max(0, pos.row - 1))})`;
+    updateCellRaw(selectedCell, defaultFormula);
+    setEditValue(defaultFormula);
+  };
+
   // Keyboard navigation across the grid
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const pos = FormulaEngine.parseCellId(selectedCell);
@@ -290,9 +408,49 @@ export const SheetsEditor: React.FC<SheetsEditorProps> = ({
       if (e.key === 'Enter') {
         e.preventDefault();
         commitEdit();
-        setSelectedCell(FormulaEngine.toCellId(pos.col, pos.row + 1));
+        if (e.shiftKey) {
+          if (pos.row > 0) setSelectedCell(FormulaEngine.toCellId(pos.col, pos.row - 1));
+        } else {
+          if (pos.row < activeSheet.rowCount - 1) setSelectedCell(FormulaEngine.toCellId(pos.col, pos.row + 1));
+        }
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        commitEdit();
+        if (e.shiftKey) {
+          if (pos.col > 0) setSelectedCell(FormulaEngine.toCellId(pos.col - 1, pos.row));
+        } else {
+          if (pos.col < activeSheet.colCount - 1) setSelectedCell(FormulaEngine.toCellId(pos.col + 1, pos.row));
+        }
       } else if (e.key === 'Escape') {
         cancelEdit();
+      }
+      return;
+    }
+
+    // Shortcuts: Copy, Paste, AutoSum
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      copySelectedToClipboard();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      pasteFromClipboard();
+      return;
+    }
+    if (e.altKey && e.key === '=') {
+      e.preventDefault();
+      insertAutoSum();
+      return;
+    }
+
+    // Tab Navigation
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (pos.col > 0) setSelectedCell(FormulaEngine.toCellId(pos.col - 1, pos.row));
+      } else {
+        if (pos.col < activeSheet.colCount - 1) setSelectedCell(FormulaEngine.toCellId(pos.col + 1, pos.row));
       }
       return;
     }
@@ -310,6 +468,13 @@ export const SheetsEditor: React.FC<SheetsEditorProps> = ({
       e.preventDefault();
       setSelectedCell(FormulaEngine.toCellId(pos.col + 1, pos.row));
     } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (pos.row > 0) setSelectedCell(FormulaEngine.toCellId(pos.col, pos.row - 1));
+      } else {
+        setIsEditing(true);
+      }
+    } else if (e.key === 'F2') {
       e.preventDefault();
       setIsEditing(true);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -822,6 +987,34 @@ export const SheetsEditor: React.FC<SheetsEditorProps> = ({
             title="Sort Descending (Z-A)"
           >
             <ArrowUpZA className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+
+          {/* Microsoft AutoSum */}
+          <button
+            onClick={insertAutoSum}
+            className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center space-x-1 shadow-xs"
+            title="AutoSum (Alt+=) - Automatically sums contiguous numbers above or left"
+          >
+            <span className="font-serif italic text-xs">∑</span>
+            <span>AutoSum</span>
+          </button>
+
+          {/* Quick Copy / Paste */}
+          <button
+            onClick={copySelectedToClipboard}
+            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            title="Copy to Clipboard (Ctrl+C)"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={pasteFromClipboard}
+            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            title="Paste from Clipboard (Ctrl+V)"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
           </button>
         </div>
 

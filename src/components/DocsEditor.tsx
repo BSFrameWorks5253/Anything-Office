@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import type {
   DocumentData,
   DocParagraph,
@@ -7,26 +7,28 @@ import type {
   DocCitation,
 } from '../types/office';
 import {
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  AlignLeft,
   AlignCenter,
+  AlignRight,
+  AlignJustify,
   Plus,
   Trash2,
   Info,
   ZoomIn,
   ZoomOut,
-  BookOpen,
-  Layout,
-  CheckCircle2,
   Search,
   X,
-  List,
-  ListOrdered,
   MessageSquare,
   History,
   Stamp,
   Bookmark,
   Users,
   ListTree,
-  FileText,
+  Table as TableIcon,
 } from 'lucide-react';
 
 interface DocsEditorProps {
@@ -40,11 +42,27 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
   const [showFindReplace, setShowFindReplace] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [replaceTerm, setReplaceTerm] = useState<string>('');
-  const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
+  const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(data.paragraphs[0]?.id || null);
+
+  // Active formatting state for current selection / paragraph
+  const [activeFontFamily, setActiveFontFamily] = useState<string>(data.fontFamily || 'Calibri');
+  const [activeFontSize, setActiveFontSize] = useState<number>(11);
+
+  // Mini Floating Toolbar on Text Selection (Microsoft Word style)
+  const [miniToolbarPos, setMiniToolbarPos] = useState<{ x: number; y: number } | null>(null);
 
   // Enterprise Feature Drawer States
   const [activeSideDrawer, setActiveSideDrawer] = useState<'comments' | 'trackChanges' | 'citations' | 'watermark' | 'mailMerge' | 'outline' | null>(null);
   const [newCommentText, setNewCommentText] = useState<string>('');
+
+  // Citations Modal Input
+  const [citationAuthor, setCitationAuthor] = useState<string>('Porter, M. E.');
+  const [citationTitle, setCitationTitle] = useState<string>('Competitive Strategy: Techniques for Analyzing Industries');
+  const [citationYear, setCitationYear] = useState<number>(2024);
+  const [citationStyle, setCitationStyle] = useState<'APA' | 'MLA' | 'Chicago'>('APA');
+
+  // Watermark text input
+  const [watermarkInput, setWatermarkInput] = useState<string>(data.watermark?.text || 'CONFIDENTIAL');
 
   // Document Outline (Headings Navigation)
   const headings = useMemo(() => {
@@ -65,6 +83,7 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     }
   };
 
+  // Automated Table of Contents insertion
   const insertTableOfContents = () => {
     const tocId = `p-toc-${Date.now()}`;
     const tocContent =
@@ -90,16 +109,7 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     setSelectedParagraphId(tocId);
   };
 
-  // Citations Modal Input
-  const [citationAuthor, setCitationAuthor] = useState<string>('Porter, M. E.');
-  const [citationTitle, setCitationTitle] = useState<string>('Competitive Strategy: Techniques for Analyzing Industries');
-  const [citationYear, setCitationYear] = useState<number>(2024);
-  const [citationStyle, setCitationStyle] = useState<'APA' | 'MLA' | 'Chicago'>('APA');
-
-  // Watermark text input
-  const [watermarkInput, setWatermarkInput] = useState<string>(data.watermark?.text || 'CONFIDENTIAL');
-
-  // Statistics calculation
+  // Real-time Statistics calculation
   const stats = useMemo(() => {
     let words = 0;
     let characters = 0;
@@ -122,8 +132,9 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
       }
     }
 
+    const estimatedPages = Math.max(1, Math.ceil(data.paragraphs.length / 5));
     const readingMinutes = Math.max(1, Math.ceil(words / 200));
-    return { words, characters, readingMinutes };
+    return { words, characters, estimatedPages, readingMinutes };
   }, [data]);
 
   // Find & Replace match count
@@ -167,6 +178,30 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     onChange({ ...data, paragraphs: newParagraphs });
   };
 
+  // Text selection listener for Mini Floating Toolbar
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) {
+        setMiniToolbarPos(null);
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setMiniToolbarPos({
+          x: rect.left + rect.width / 2,
+          y: Math.max(10, rect.top - 44),
+        });
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
+  // Update a single paragraph
   const updateParagraph = (id: string, updates: Partial<DocParagraph>) => {
     // If track changes is enabled, record revision
     if (data.trackChangesEnabled && updates.content !== undefined) {
@@ -193,49 +228,57 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     onChange({ ...data, paragraphs: newParagraphs });
   };
 
+  // Delete a paragraph
   const deleteParagraph = (id: string) => {
     if (data.paragraphs.length <= 1) return;
+    const idx = data.paragraphs.findIndex((p) => p.id === id);
     const newParagraphs = data.paragraphs.filter((p) => p.id !== id);
     onChange({ ...data, paragraphs: newParagraphs });
+    const nextIdx = Math.max(0, idx - 1);
+    setSelectedParagraphId(newParagraphs[nextIdx]?.id || null);
   };
 
+  // Add paragraph after index
   const addParagraphAfter = (
     index: number,
-    type: 'p' | 'h1' | 'h2' | 'h3' | 'bullet' | 'number' | 'callout' | 'table' | 'image' | 'hr' = 'p'
+    type: DocParagraph['type'] = 'p',
+    initialContent: string = ''
   ) => {
     const newId = `p-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
     const newP: DocParagraph = {
       id: newId,
       type,
-      content:
+      content: initialContent || (
         type === 'h1'
-          ? 'New Heading 1'
+          ? 'Heading 1'
           : type === 'h2'
-          ? 'New Section Title'
+          ? 'Section Title'
           : type === 'h3'
           ? 'Subsection Heading'
           : type === 'bullet'
-          ? 'Bullet list item'
+          ? 'List item'
           : type === 'number'
-          ? 'Numbered step item'
+          ? 'Numbered step'
           : type === 'callout'
-          ? 'Important callout note'
+          ? 'Key strategic highlight or callout'
           : type === 'table'
-          ? 'Data Summary Table'
+          ? 'Summary Table'
           : type === 'image'
-          ? 'Figure 1: Project Architecture Overview'
+          ? 'Figure 1. Operational Overview'
           : type === 'hr'
           ? '---'
-          : 'Type narrative paragraph text here...',
+          : ''
+      ),
       align: 'left',
       imageUrl: type === 'image' ? 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800&auto=format&fit=crop&q=80' : undefined,
-      imageCaption: type === 'image' ? 'Figure 1. Strategic system workflow' : undefined,
+      imageCaption: type === 'image' ? 'Figure 1: Architectural diagram' : undefined,
       tableData:
         type === 'table'
           ? [
-              ['Column 1', 'Column 2', 'Column 3'],
-              ['Item A1', 'Value B1', 'Target C1'],
-              ['Item A2', 'Value B2', 'Target C2'],
+              ['Department', 'Q1 Budget', 'Q2 Forecast', 'Variance'],
+              ['Engineering', '$450,000', '$465,000', '+3.3%'],
+              ['Marketing', '$280,000', '$275,000', '-1.8%'],
+              ['Operations', '$190,000', '$188,000', '-1.1%'],
             ]
           : undefined,
     };
@@ -244,8 +287,40 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     newParagraphs.splice(index + 1, 0, newP);
     onChange({ ...data, paragraphs: newParagraphs });
     setSelectedParagraphId(newId);
+
+    setTimeout(() => {
+      const el = document.getElementById(newId);
+      if (el) {
+        el.focus();
+      }
+    }, 50);
   };
 
+  // Format active paragraph or selection
+  const applyFormattingToSelected = (formatType: 'bold' | 'italic' | 'underline' | 'strike') => {
+    if (!selectedParagraphId) return;
+    const target = data.paragraphs.find((p) => p.id === selectedParagraphId);
+    if (!target) return;
+
+    const currentStyle = target.style || {};
+    const updatedStyle = {
+      ...currentStyle,
+      [formatType]: !currentStyle[formatType],
+    };
+    updateParagraph(selectedParagraphId, { style: updatedStyle });
+  };
+
+  const applyAlignToSelected = (align: DocParagraph['align']) => {
+    if (!selectedParagraphId) return;
+    updateParagraph(selectedParagraphId, { align });
+  };
+
+  const applyTypeToSelected = (type: DocParagraph['type']) => {
+    if (!selectedParagraphId) return;
+    updateParagraph(selectedParagraphId, { type });
+  };
+
+  // Table manipulation methods
   const updateTableCell = (pId: string, rowIdx: number, colIdx: number, val: string) => {
     const target = data.paragraphs.find((p) => p.id === pId);
     if (!target || !target.tableData) return;
@@ -261,7 +336,7 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     if (!target || !target.tableData || target.tableData.length === 0) return;
 
     const colCount = target.tableData[0].length;
-    const emptyRow = new Array(colCount).fill('New Value');
+    const emptyRow = new Array(colCount).fill('Data');
     updateParagraph(pId, { tableData: [...target.tableData, emptyRow] });
   };
 
@@ -271,7 +346,7 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
 
     const newTable = target.tableData.map((row, idx) => [
       ...row,
-      idx === 0 ? `Col ${row.length + 1}` : 'Val',
+      idx === 0 ? `Col ${row.length + 1}` : 'Value',
     ]);
     updateParagraph(pId, { tableData: newTable });
   };
@@ -320,7 +395,6 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
     const change = changes.find((c) => c.id === changeId);
     if (!change) return;
 
-    // Revert paragraph text
     const newParagraphs = data.paragraphs.map((p) =>
       p.id === change.paragraphId ? { ...p, content: change.oldText || '' } : p
     );
@@ -386,16 +460,177 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
   };
 
   const isLandscape = data.orientation === 'landscape';
+  const selectedParagraph = data.paragraphs.find((p) => p.id === selectedParagraphId);
 
   return (
-    <div className="flex flex-col h-full w-full select-text overflow-hidden relative">
-      {/* 1. TOP ADVANCED WORD TOOLBAR (Track Changes, Comments, Watermark, Citations, Mail Merge) */}
+    <div className="flex flex-col h-full w-full select-text overflow-hidden relative font-sans">
+      {/* 1. TOP DEDICATED WORD DOCUMENT FORMATTING RIBBON */}
       <div
-        className={`h-7 border-b select-none flex items-center justify-between px-3 text-xs shrink-0 transition-colors ${
+        className={`h-9 border-b select-none flex items-center justify-between px-3 text-xs shrink-0 transition-colors z-20 ${
           darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
         }`}
       >
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1.5 overflow-x-auto">
+          {/* Paragraph Style Selector (Heading 1, 2, 3, Normal, Quote, Bullet, Number) */}
+          <select
+            value={selectedParagraph?.type || 'p'}
+            onChange={(e) => applyTypeToSelected(e.target.value as any)}
+            className="h-6 px-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-medium focus:outline-none"
+            title="Style Preset"
+          >
+            <option value="p">Normal Text</option>
+            <option value="h1">Heading 1</option>
+            <option value="h2">Heading 2</option>
+            <option value="h3">Heading 3</option>
+            <option value="bullet">• Bullet List</option>
+            <option value="number">1. Numbered List</option>
+            <option value="callout">💡 Callout Box</option>
+            <option value="table">📊 Table</option>
+          </select>
+
+          {/* Font Family Picker */}
+          <select
+            value={activeFontFamily}
+            onChange={(e) => {
+              setActiveFontFamily(e.target.value);
+              onChange({ ...data, fontFamily: e.target.value });
+            }}
+            className="h-6 px-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none font-sans"
+            title="Font Family"
+          >
+            <option value="Calibri">Calibri</option>
+            <option value="Arial">Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Segoe UI">Segoe UI</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Courier New">Courier New</option>
+          </select>
+
+          {/* Font Size Picker */}
+          <select
+            value={activeFontSize}
+            onChange={(e) => setActiveFontSize(Number(e.target.value))}
+            className="h-6 px-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none font-mono"
+            title="Font Size"
+          >
+            {[9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48].map((sz) => (
+              <option key={sz} value={sz}>
+                {sz}
+              </option>
+            ))}
+          </select>
+
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+          {/* Bold, Italic, Underline, Strike */}
+          <button
+            onClick={() => applyFormattingToSelected('bold')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.style?.bold ? 'bg-slate-200 dark:bg-slate-800 text-blue-600 font-bold' : ''
+            }`}
+            title="Bold (Ctrl+B)"
+          >
+            <Bold className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyFormattingToSelected('italic')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.style?.italic ? 'bg-slate-200 dark:bg-slate-800 text-blue-600' : ''
+            }`}
+            title="Italic (Ctrl+I)"
+          >
+            <Italic className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyFormattingToSelected('underline')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.style?.underline ? 'bg-slate-200 dark:bg-slate-800 text-blue-600' : ''
+            }`}
+            title="Underline (Ctrl+U)"
+          >
+            <Underline className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyFormattingToSelected('strike')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.style?.strike ? 'bg-slate-200 dark:bg-slate-800 text-blue-600' : ''
+            }`}
+            title="Strikethrough"
+          >
+            <Strikethrough className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+          {/* Alignment */}
+          <button
+            onClick={() => applyAlignToSelected('left')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.align === 'left' ? 'text-blue-600 font-bold' : ''
+            }`}
+            title="Align Left"
+          >
+            <AlignLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyAlignToSelected('center')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.align === 'center' ? 'text-blue-600 font-bold' : ''
+            }`}
+            title="Align Center"
+          >
+            <AlignCenter className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyAlignToSelected('right')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.align === 'right' ? 'text-blue-600 font-bold' : ''
+            }`}
+            title="Align Right"
+          >
+            <AlignRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => applyAlignToSelected('justify')}
+            className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${
+              selectedParagraph?.align === 'justify' ? 'text-blue-600 font-bold' : ''
+            }`}
+            title="Justify"
+          >
+            <AlignJustify className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+          {/* Quick Insert Table */}
+          <button
+            onClick={() => {
+              const currentIdx = data.paragraphs.findIndex((p) => p.id === selectedParagraphId);
+              addParagraphAfter(currentIdx >= 0 ? currentIdx : data.paragraphs.length - 1, 'table');
+            }}
+            className="flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 font-medium text-[11px]"
+            title="Insert Table"
+          >
+            <TableIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Table</span>
+          </button>
+
+          {/* Quick Insert Callout */}
+          <button
+            onClick={() => {
+              const currentIdx = data.paragraphs.findIndex((p) => p.id === selectedParagraphId);
+              addParagraphAfter(currentIdx >= 0 ? currentIdx : data.paragraphs.length - 1, 'callout');
+            }}
+            className="flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 font-medium text-[11px]"
+            title="Insert Callout Box"
+          >
+            <Info className="w-3.5 h-3.5 text-amber-500" />
+            <span>Callout</span>
+          </button>
+        </div>
+
+        {/* Right tools (Orientation, Track Changes, Comments, Find & Replace) */}
+        <div className="flex items-center space-x-2 shrink-0">
           {/* Orientation Toggle */}
           <button
             onClick={() =>
@@ -407,36 +642,10 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
             className="flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium hover:bg-slate-200 dark:hover:bg-slate-800"
             title="Toggle Page Orientation (Portrait / Landscape)"
           >
-            <Layout className="w-3 h-3 text-blue-500" />
             <span>{isLandscape ? 'Landscape' : 'Portrait'}</span>
           </button>
 
-          {/* Margins Preset Dropdown */}
-          <select
-            value={
-              data.margins.left === 16 ? 'narrow' : data.margins.left === 48 ? 'wide' : 'normal'
-            }
-            onChange={(e) => {
-              const val = e.target.value;
-              const margins =
-                val === 'narrow'
-                  ? { top: 16, right: 16, bottom: 16, left: 16 }
-                  : val === 'wide'
-                  ? { top: 48, right: 48, bottom: 48, left: 48 }
-                  : { top: 28, right: 28, bottom: 28, left: 28 };
-              onChange({ ...data, margins });
-            }}
-            className="h-5 px-1 text-[11px] rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none"
-            title="Page Margins Preset"
-          >
-            <option value="normal">Normal (1")</option>
-            <option value="narrow">Narrow (0.5")</option>
-            <option value="wide">Wide (1.75")</option>
-          </select>
-
-          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700" />
-
-          {/* Track Changes Toggle */}
+          {/* Track Changes */}
           <button
             onClick={() =>
               onChange({
@@ -449,13 +658,13 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
                 ? 'bg-amber-600 text-white font-bold'
                 : 'hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
-            title="Toggle Track Changes / Redlining mode"
+            title="Track Changes / Redlining mode"
           >
             <History className="w-3 h-3" />
-            <span>Track Changes {data.trackChangesEnabled ? 'ON' : 'OFF'}</span>
+            <span>Track Changes</span>
           </button>
 
-          {/* Comments Drawer Button */}
+          {/* Comments */}
           <button
             onClick={() => setActiveSideDrawer(activeSideDrawer === 'comments' ? null : 'comments')}
             className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
@@ -472,34 +681,39 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
           <button
             onClick={() => setActiveSideDrawer(activeSideDrawer === 'watermark' ? null : 'watermark')}
             className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-              data.watermark?.enabled ? 'text-blue-600 dark:text-blue-400 font-bold' : ''
+              data.watermark?.enabled ? 'text-blue-600 dark:text-blue-400 font-bold' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
+            title="Configure Background Watermark"
           >
             <Stamp className="w-3 h-3" />
-            <span>Watermark {data.watermark?.enabled ? `(${data.watermark.text})` : ''}</span>
+            <span>Watermark</span>
           </button>
 
-          {/* Citations Button */}
-          <button
-            onClick={() => setActiveSideDrawer(activeSideDrawer === 'citations' ? null : 'citations')}
-            className="flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium hover:bg-slate-200 dark:hover:bg-slate-800"
-          >
-            <Bookmark className="w-3 h-3" />
-            <span>Citations ({data.citations?.length || 0})</span>
-          </button>
-
-          {/* Mail Merge Button */}
+          {/* Mail Merge Drawer Button */}
           <button
             onClick={() => setActiveSideDrawer(activeSideDrawer === 'mailMerge' ? null : 'mailMerge')}
             className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-              data.mailMerge?.enabled ? 'bg-indigo-600 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
+              data.mailMerge?.enabled ? 'bg-indigo-600 text-white font-bold' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
+            title="Mail Merge Dynamic Fields"
           >
             <Users className="w-3 h-3" />
             <span>Mail Merge</span>
           </button>
 
-          {/* Outline Drawer Button */}
+          {/* Citations Drawer Button */}
+          <button
+            onClick={() => setActiveSideDrawer(activeSideDrawer === 'citations' ? null : 'citations')}
+            className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              activeSideDrawer === 'citations' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
+            }`}
+            title="Citations and Bibliography"
+          >
+            <Bookmark className="w-3 h-3" />
+            <span>Citations ({data.citations?.length || 0})</span>
+          </button>
+
+          {/* Outline */}
           <button
             onClick={() => setActiveSideDrawer(activeSideDrawer === 'outline' ? null : 'outline')}
             className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
@@ -510,35 +724,25 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
             title="Document Headings Navigation Outline"
           >
             <ListTree className="w-3 h-3" />
-            <span>Outline ({headings.length})</span>
+            <span>Outline</span>
           </button>
 
-          {/* Table of Contents Button */}
+          {/* Find & Replace Trigger */}
           <button
-            onClick={insertTableOfContents}
-            className="flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium hover:bg-slate-200 dark:hover:bg-slate-800"
-            title="Insert Automated Table of Contents"
+            onClick={() => setShowFindReplace(!showFindReplace)}
+            className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              showFindReplace ? 'bg-blue-600 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
+            }`}
           >
-            <FileText className="w-3 h-3 text-blue-500" />
-            <span>+ TOC</span>
+            <Search className="w-3 h-3" />
+            <span>Find & Replace</span>
           </button>
         </div>
-
-        {/* Find & Replace Trigger */}
-        <button
-          onClick={() => setShowFindReplace(!showFindReplace)}
-          className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-            showFindReplace ? 'bg-blue-600 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Search className="w-3 h-3" />
-          <span>Find & Replace</span>
-        </button>
       </div>
 
       {/* Floating Find & Replace Panel */}
       {showFindReplace && (
-        <div className="absolute top-9 right-8 z-40 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-xl rounded-lg p-3 text-xs w-80 space-y-2 animate-fadeIn">
+        <div className="absolute top-11 right-8 z-40 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl rounded-lg p-3 text-xs w-80 space-y-2 animate-fadeIn">
           <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
             <span className="flex items-center space-x-1">
               <Search className="w-3.5 h-3.5 text-blue-500" />
@@ -589,30 +793,120 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
         </div>
       )}
 
-      {/* 2. MAIN CONTAINER WITH WORD CANVAS + OPTIONAL SIDEBAR DRAWER */}
+      {/* Floating Mini Toolbar on Text Selection (Microsoft Word style) */}
+      {miniToolbarPos && (
+        <div
+          className="fixed z-50 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl rounded-md px-2 py-1 flex items-center space-x-1 text-xs animate-fadeIn -translate-x-1/2"
+          style={{ left: miniToolbarPos.x, top: miniToolbarPos.y }}
+        >
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyFormattingToSelected('bold');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 font-bold"
+            title="Bold"
+          >
+            <Bold className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyFormattingToSelected('italic');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Italic"
+          >
+            <Italic className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyFormattingToSelected('underline');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Underline"
+          >
+            <Underline className="w-3.5 h-3.5" />
+          </button>
+          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyAlignToSelected('left');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <AlignLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyAlignToSelected('center');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <AlignCenter className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyAlignToSelected('right');
+            }}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <AlignRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 2. AUTHENTIC PHYSICAL DOCUMENT WORKSPACE */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Main Canvas Scroll Area */}
         <div
-          className={`flex-1 overflow-y-auto p-8 flex justify-center transition-colors relative ${
-            darkMode ? 'bg-[#1e1e1e]' : 'bg-[#f3f2f1]'
+          className={`flex-1 overflow-y-auto p-8 flex flex-col items-center transition-colors relative ${
+            darkMode ? 'bg-[#18181b]' : 'bg-[#eef2f6]'
           }`}
         >
-          {/* Physical Sheet Container */}
+          {/* Authentic Physical Margin Ruler */}
           <div
-            className={`rounded-xs p-12 transition-all relative overflow-hidden ${
-              isLandscape ? 'w-[1100px] min-h-[800px]' : 'w-full max-w-4xl min-h-[1100px]'
+            className={`mb-3 h-5 rounded-xs border flex items-center justify-between px-6 text-[9px] font-mono select-none ${
+              isLandscape ? 'w-[1050px]' : 'w-full max-w-4xl'
+            } ${
+              darkMode ? 'bg-slate-900 border-slate-800 text-slate-500' : 'bg-white border-slate-300 text-slate-400'
+            }`}
+          >
+            <div className="flex items-center space-x-8">
+              <span>| 1"</span>
+              <span>| 2"</span>
+              <span>| 3"</span>
+              <span>| 4"</span>
+              <span>| 5"</span>
+              <span>| 6"</span>
+              <span>| 7"</span>
+              {isLandscape && (
+                <>
+                  <span>| 8"</span>
+                  <span>| 9"</span>
+                  <span>| 10"</span>
+                </>
+              )}
+            </div>
+            <span className="font-semibold">{data.pageSize || 'A4'} Page Grid</span>
+          </div>
+
+          {/* Physical Sheet Container (Exact Microsoft Word Page) */}
+          <div
+            className={`rounded-xs p-16 transition-all relative overflow-hidden ${
+              isLandscape ? 'w-[1050px] min-h-[750px]' : 'w-full max-w-4xl min-h-[1123px]'
             } ${
               darkMode
-                ? 'bg-[#2b2b2b] text-slate-100 border border-neutral-700 shadow-2xl'
-                : 'bg-white text-slate-900 border border-slate-300 shadow-[0_4px_24px_rgba(0,0,0,0.12)]'
+                ? 'bg-[#27272a] text-slate-100 border border-neutral-700 shadow-2xl'
+                : 'bg-white text-slate-900 border border-slate-300 shadow-[0_8px_30px_rgb(0,0,0,0.12)]'
             }`}
             style={{
               transform: `scale(${zoomLevel / 100})`,
               transformOrigin: 'top center',
-              paddingTop: `${data.margins.top * 1.5}px`,
-              paddingBottom: `${data.margins.bottom * 1.5}px`,
-              paddingLeft: `${data.margins.left * 1.5}px`,
-              paddingRight: `${data.margins.right * 1.5}px`,
               fontFamily: data.fontFamily || 'Calibri, sans-serif',
             }}
           >
@@ -628,32 +922,32 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
               </div>
             )}
 
-            {/* Header Bar */}
-            <div className="border-b border-slate-200 dark:border-neutral-700 pb-3 mb-8 flex justify-between items-center text-xs text-slate-400 select-none relative z-10">
-              <span className="font-semibold tracking-wide uppercase text-[10px]">
-                {data.title || 'Executive Document'}
+            {/* Document Header Zone */}
+            <div className="border-b border-slate-200 dark:border-neutral-700 pb-2 mb-8 flex justify-between items-center text-xs text-slate-400 select-none relative z-10">
+              <span className="font-bold tracking-wide uppercase text-[10px]">
+                {data.title || 'Untitled Document'}
               </span>
               <span className="text-[10px]">
-                {data.pageSize || 'A4'} Format • {isLandscape ? 'Landscape' : 'Portrait'} • Normal Margins
+                {data.pageSize || 'A4'} • {isLandscape ? 'Landscape' : 'Portrait'} • Microsoft Word Parity
               </span>
             </div>
 
-            {/* Paragraph Blocks */}
-            <div className="space-y-4 relative z-10">
+            {/* Paragraph Blocks Flow */}
+            <div className="space-y-3 relative z-10">
               {data.paragraphs.map((p, idx) => {
                 const paragraphComments = (data.comments || []).filter((c) => c.paragraphId === p.id);
                 const paragraphTrackChanges = (data.trackChanges || []).filter(
                   (tc) => tc.paragraphId === p.id && tc.status === 'pending'
                 );
 
-                const isPageBreak = idx > 0 && idx % 5 === 0;
+                const isPageBreak = idx > 0 && idx % 6 === 0;
 
                 return (
                   <React.Fragment key={p.id}>
                     {isPageBreak && (
-                      <div className="my-8 py-2 border-y border-dashed border-slate-300 dark:border-neutral-700 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest select-none bg-slate-100/60 dark:bg-neutral-900/50 -mx-12 px-12">
+                      <div className="my-10 py-2 border-y border-dashed border-slate-300 dark:border-neutral-700 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest select-none bg-slate-100/60 dark:bg-neutral-900/50 -mx-16 px-16">
                         <span>--- Page Break ---</span>
-                        <span>Page {Math.floor(idx / 5) + 1} of {Math.max(1, Math.ceil(data.paragraphs.length / 5))}</span>
+                        <span>Page {Math.floor(idx / 6) + 1} of {stats.estimatedPages}</span>
                       </div>
                     )}
 
@@ -662,709 +956,634 @@ export const DocsEditor: React.FC<DocsEditorProps> = ({ data, onChange, darkMode
                       onClick={() => setSelectedParagraphId(p.id)}
                       className={`group relative -mx-4 px-4 py-1.5 rounded transition-colors ${
                         selectedParagraphId === p.id
-                          ? 'ring-1 ring-blue-500/50 bg-blue-50/20 dark:bg-blue-950/20'
-                          : 'hover:bg-slate-50 dark:hover:bg-neutral-800/40'
+                          ? 'ring-1 ring-blue-500/50 bg-blue-50/15 dark:bg-blue-950/20'
+                          : 'hover:bg-slate-50/80 dark:hover:bg-neutral-800/30'
                       }`}
                     >
-                    {/* Floating Comment Badge indicator */}
-                    {paragraphComments.length > 0 && (
-                      <div
-                        onClick={() => setActiveSideDrawer('comments')}
-                        className="absolute -left-2 top-2 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold shadow cursor-pointer z-20"
-                        title={`${paragraphComments.length} comment(s)`}
-                      >
-                        {paragraphComments.length}
-                      </div>
-                    )}
-
-                    {/* Pending Track Change Banner */}
-                    {paragraphTrackChanges.length > 0 && (
-                      <div className="mb-1 p-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded text-[10px] text-amber-800 dark:text-amber-200 flex items-center justify-between">
-                        <span>Revision pending ({paragraphTrackChanges[0].author})</span>
-                        <div className="space-x-1">
-                          <button
-                            onClick={() => acceptChange(paragraphTrackChanges[0].id)}
-                            className="px-1.5 py-0.2 rounded bg-emerald-600 text-white font-bold"
-                          >
-                            Accept
-                          </button>
-                          <button
-                            onClick={() => rejectChange(paragraphTrackChanges[0].id)}
-                            className="px-1.5 py-0.2 rounded bg-rose-600 text-white font-bold"
-                          >
-                            Reject
-                          </button>
+                      {/* Floating Comment Badge indicator */}
+                      {paragraphComments.length > 0 && (
+                        <div
+                          onClick={() => setActiveSideDrawer('comments')}
+                          className="absolute -left-3 top-2 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold shadow cursor-pointer z-20"
+                          title={`${paragraphComments.length} comment(s)`}
+                        >
+                          {paragraphComments.length}
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Floating Block Controls on Hover */}
-                    <div className="absolute right-2 -top-3 hidden group-hover:flex items-center space-x-1 bg-white dark:bg-neutral-800 border border-slate-300 dark:border-neutral-700 rounded-md shadow-md px-1.5 py-0.5 z-20 select-none text-[11px]">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedParagraphId(p.id);
-                          setActiveSideDrawer('comments');
-                        }}
-                        title="Add Comment on this block"
-                        className="p-1 hover:text-blue-500 text-slate-500"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addParagraphAfter(idx, 'p');
-                        }}
-                        title="Add paragraph below"
-                        className="p-1 hover:text-blue-500 text-slate-500"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateParagraph(p.id, {
-                            align:
-                              p.align === 'center'
-                                ? 'right'
-                                : p.align === 'right'
-                                ? 'justify'
-                                : p.align === 'justify'
-                                ? 'left'
-                                : 'center',
-                          });
-                        }}
-                        title="Cycle alignment"
-                        className="p-1 hover:text-blue-500 text-slate-500"
-                      >
-                        <AlignCenter className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteParagraph(p.id);
-                        }}
-                        title="Delete block"
-                        className="p-1 hover:text-rose-500 text-slate-500"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Render Paragraph by Type */}
-                    {p.type === 'h1' && (
-                      <input
-                        type="text"
-                        value={renderContentWithMailMerge(p.content)}
-                        onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                        className={`w-full text-3xl font-extrabold tracking-tight bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-[#185abd] dark:text-blue-400 ${
-                          p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
-                        }`}
-                      />
-                    )}
-
-                    {p.type === 'h2' && (
-                      <input
-                        type="text"
-                        value={renderContentWithMailMerge(p.content)}
-                        onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                        className={`w-full text-xl font-bold tracking-tight text-slate-900 dark:text-white bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 mt-3 ${
-                          p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
-                        }`}
-                      />
-                    )}
-
-                    {p.type === 'h3' && (
-                      <input
-                        type="text"
-                        value={renderContentWithMailMerge(p.content)}
-                        onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                        className={`w-full text-base font-semibold text-slate-800 dark:text-slate-100 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 mt-2 ${
-                          p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
-                        }`}
-                      />
-                    )}
-
-                    {p.type === 'p' && (
-                      <textarea
-                        rows={Math.max(2, Math.ceil(p.content.length / 85))}
-                        value={renderContentWithMailMerge(p.content)}
-                        onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                        className={`w-full leading-relaxed text-sm text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-1 resize-none ${
-                          p.align === 'center'
-                            ? 'text-center'
-                            : p.align === 'right'
-                            ? 'text-right'
-                            : p.align === 'justify'
-                            ? 'text-justify'
-                            : 'text-left'
-                        }`}
-                      />
-                    )}
-
-                    {p.type === 'bullet' && (
-                      <div className="flex items-start space-x-2.5">
-                        <span className="text-[#185abd] dark:text-blue-400 font-bold select-none text-base leading-relaxed">•</span>
-                        <textarea
-                          rows={Math.max(1, Math.ceil(p.content.length / 80))}
-                          value={renderContentWithMailMerge(p.content)}
-                          onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                          className="w-full text-sm leading-relaxed text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 resize-none"
-                        />
-                      </div>
-                    )}
-
-                    {p.type === 'number' && (
-                      <div className="flex items-start space-x-2.5">
-                        <span className="text-[#185abd] dark:text-blue-400 font-bold select-none text-sm leading-relaxed">
-                          {idx + 1}.
-                        </span>
-                        <textarea
-                          rows={Math.max(1, Math.ceil(p.content.length / 80))}
-                          value={renderContentWithMailMerge(p.content)}
-                          onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                          className="w-full text-sm leading-relaxed text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 resize-none"
-                        />
-                      </div>
-                    )}
-
-                    {p.type === 'callout' && (
-                      <div className="p-3.5 rounded-md border-l-4 border-[#185abd] bg-blue-50/70 dark:bg-blue-900/40 text-blue-950 dark:text-blue-50 flex items-start space-x-3">
-                        <Info className="w-4 h-4 text-[#185abd] dark:text-blue-300 shrink-0 mt-0.5" />
-                        <textarea
-                          rows={2}
-                          value={renderContentWithMailMerge(p.content)}
-                          onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                          className="w-full text-xs font-semibold leading-relaxed text-blue-950 dark:text-blue-50 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-500 rounded resize-none"
-                        />
-                      </div>
-                    )}
-
-                    {p.type === 'image' && (
-                      <div className="my-3 p-3 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900/50 flex flex-col items-center">
-                        {p.imageUrl && (
-                          <img
-                            src={p.imageUrl}
-                            alt="Document illustration"
-                            className="max-h-72 object-cover rounded-md shadow-sm mb-2"
-                          />
-                        )}
-                        <input
-                          type="text"
-                          value={p.content}
-                          onChange={(e) => updateParagraph(p.id, { content: e.target.value })}
-                          placeholder="Image caption or description..."
-                          className="text-xs text-center text-slate-500 dark:text-slate-400 bg-transparent w-full focus:outline-none italic"
-                        />
-                      </div>
-                    )}
-
-                    {p.type === 'hr' && (
-                      <div className="my-6 border-b-2 border-slate-200 dark:border-neutral-700" />
-                    )}
-
-                    {/* Word Data Table */}
-                    {p.type === 'table' && p.tableData && (
-                      <div className="my-3 overflow-x-auto rounded border border-slate-300 dark:border-neutral-700">
-                        <table className="w-full text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-100 dark:bg-neutral-800 border-b border-slate-300 dark:border-neutral-700">
-                              {p.tableData[0]?.map((colHeader, cIdx) => (
-                                <th key={cIdx} className="p-2 text-left font-bold border-r border-inherit last:border-r-0">
-                                  <input
-                                    type="text"
-                                    value={colHeader}
-                                    onChange={(e) => updateTableCell(p.id, 0, cIdx, e.target.value)}
-                                    className="w-full bg-transparent font-bold focus:outline-none"
-                                  />
-                                </th>
-                              ))}
-                              <th className="w-6 p-1 text-center font-normal text-[10px] text-slate-400">✕</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {p.tableData.slice(1).map((row, rIdx) => (
-                              <tr
-                                key={rIdx}
-                                className="border-b border-slate-200 dark:border-neutral-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-neutral-800/40"
-                              >
-                                {row.map((cell, cIdx) => (
-                                  <td
-                                    key={cIdx}
-                                    className="p-2 border-r border-slate-200 dark:border-neutral-700 last:border-r-0"
-                                  >
-                                    <input
-                                      type="text"
-                                      value={cell}
-                                      onChange={(e) =>
-                                        updateTableCell(p.id, rIdx + 1, cIdx, e.target.value)
-                                      }
-                                      className="w-full bg-transparent focus:outline-none"
-                                    />
-                                  </td>
-                                ))}
-                                <td className="w-6 p-1 text-center">
-                                  <button
-                                    onClick={() => deleteTableRow(p.id, rIdx + 1)}
-                                    className="text-slate-400 hover:text-rose-500 text-xs"
-                                    title="Delete row"
-                                  >
-                                    ×
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="p-1.5 bg-slate-50 dark:bg-neutral-900 border-t border-inherit flex items-center justify-between">
-                          <button
-                            onClick={() => deleteParagraph(p.id)}
-                            className="text-[10px] text-rose-500 hover:underline px-2 py-0.5"
-                          >
-                            Delete Table
-                          </button>
-                          <div className="flex items-center space-x-2">
+                      {/* Pending Track Change Banner */}
+                      {paragraphTrackChanges.length > 0 && (
+                        <div className="mb-1 p-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded text-[10px] text-amber-800 dark:text-amber-200 flex items-center justify-between">
+                          <span>Revision pending ({paragraphTrackChanges[0].author})</span>
+                          <div className="space-x-1">
                             <button
-                              onClick={() => addTableCol(p.id)}
-                              className="text-[10px] text-[#185abd] dark:text-blue-400 hover:underline flex items-center space-x-1 px-2 py-0.5 font-medium"
+                              onClick={() => acceptChange(paragraphTrackChanges[0].id)}
+                              className="px-1.5 py-0.2 rounded bg-emerald-600 text-white font-bold"
                             >
-                              <Plus className="w-3 h-3" />
-                              <span>Insert Column</span>
+                              Accept
                             </button>
                             <button
-                              onClick={() => addTableRow(p.id)}
-                              className="text-[10px] text-[#185abd] dark:text-blue-400 hover:underline flex items-center space-x-1 px-2 py-0.5 font-medium"
+                              onClick={() => rejectChange(paragraphTrackChanges[0].id)}
+                              className="px-1.5 py-0.2 rounded bg-rose-600 text-white font-bold"
                             >
-                              <Plus className="w-3 h-3" />
-                              <span>Insert Row</span>
+                              Reject
                             </button>
                           </div>
                         </div>
+                      )}
+
+                      {/* Floating Block Controls on Hover */}
+                      <div className="absolute right-2 -top-3 hidden group-hover:flex items-center space-x-1 bg-white dark:bg-neutral-800 border border-slate-300 dark:border-neutral-700 rounded-md shadow-md px-1.5 py-0.5 z-20 select-none text-[11px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedParagraphId(p.id);
+                            setActiveSideDrawer('comments');
+                          }}
+                          title="Add Comment"
+                          className="p-1 hover:text-blue-500 text-slate-500"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addParagraphAfter(idx, 'p');
+                          }}
+                          title="Add paragraph below"
+                          className="p-1 hover:text-blue-500 text-slate-500"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteParagraph(p.id);
+                          }}
+                          title="Delete paragraph"
+                          className="p-1 hover:text-rose-500 text-slate-500"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    )}
-                  </div>
-                </React.Fragment>
-              );
-            })}
-          </div>
 
-          {/* Running Document Footer */}
-          <div className="border-t border-slate-200 dark:border-neutral-700 pt-3 mt-8 flex justify-between items-center text-[10px] text-slate-400 select-none relative z-10">
-            <span>{data.footerText || 'Confidential • Proprietary Document'}</span>
-            <span>Page {Math.max(1, Math.ceil(data.paragraphs.length / 5))} of {Math.max(1, Math.ceil(data.paragraphs.length / 5))}</span>
-          </div>
+                      {/* Content-Editable Fluid Paragraph Rendering */}
+                      {p.type === 'h1' && (
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addParagraphAfter(idx, 'p');
+                            }
+                          }}
+                          className={`text-3xl font-extrabold tracking-tight text-[#185abd] dark:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 ${
+                            p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
+                          }`}
+                          style={{
+                            fontWeight: p.style?.bold ? 'bold' : undefined,
+                            fontStyle: p.style?.italic ? 'italic' : undefined,
+                            textDecoration: p.style?.underline ? 'underline' : undefined,
+                          }}
+                        >
+                          {renderContentWithMailMerge(p.content)}
+                        </div>
+                      )}
 
-            {/* Quick Insert Block at Bottom of Page */}
-            <div className="mt-8 pt-4 border-t border-dashed border-slate-300 dark:border-neutral-700 flex flex-wrap gap-2 justify-center select-none">
-              <button
-                onClick={() => addParagraphAfter(data.paragraphs.length - 1, 'p')}
-                className="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 flex items-center space-x-1 text-slate-600 dark:text-slate-300"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Paragraph</span>
-              </button>
-              <button
-                onClick={() => addParagraphAfter(data.paragraphs.length - 1, 'h2')}
-                className="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 flex items-center space-x-1 text-slate-600 dark:text-slate-300"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Heading</span>
-              </button>
-              <button
-                onClick={() => addParagraphAfter(data.paragraphs.length - 1, 'bullet')}
-                className="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 flex items-center space-x-1 text-slate-600 dark:text-slate-300"
-              >
-                <List className="w-3 h-3" />
-                <span>Bullet List</span>
-              </button>
-              <button
-                onClick={() => addParagraphAfter(data.paragraphs.length - 1, 'number')}
-                className="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 flex items-center space-x-1 text-slate-600 dark:text-slate-300"
-              >
-                <ListOrdered className="w-3 h-3" />
-                <span>Numbered List</span>
-              </button>
-              <button
-                onClick={() => addParagraphAfter(data.paragraphs.length - 1, 'table')}
-                className="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 flex items-center space-x-1 text-slate-600 dark:text-slate-300"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Table</span>
-              </button>
+                      {p.type === 'h2' && (
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addParagraphAfter(idx, 'p');
+                            }
+                          }}
+                          className={`text-xl font-bold tracking-tight text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 mt-3 ${
+                            p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
+                          }`}
+                          style={{
+                            fontWeight: p.style?.bold ? 'bold' : undefined,
+                            fontStyle: p.style?.italic ? 'italic' : undefined,
+                            textDecoration: p.style?.underline ? 'underline' : undefined,
+                          }}
+                        >
+                          {renderContentWithMailMerge(p.content)}
+                        </div>
+                      )}
+
+                      {p.type === 'h3' && (
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addParagraphAfter(idx, 'p');
+                            }
+                          }}
+                          className={`text-base font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 mt-2 ${
+                            p.align === 'center' ? 'text-center' : p.align === 'right' ? 'text-right' : 'text-left'
+                          }`}
+                        >
+                          {renderContentWithMailMerge(p.content)}
+                        </div>
+                      )}
+
+                      {p.type === 'p' && (
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              addParagraphAfter(idx, 'p');
+                            } else if (e.key === 'Backspace' && e.currentTarget.textContent === '') {
+                              e.preventDefault();
+                              deleteParagraph(p.id);
+                            }
+                          }}
+                          className={`text-sm leading-relaxed text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 min-h-[1.5em] ${
+                            p.align === 'center'
+                              ? 'text-center'
+                              : p.align === 'right'
+                              ? 'text-right'
+                              : p.align === 'justify'
+                              ? 'text-justify'
+                              : 'text-left'
+                          }`}
+                          style={{
+                            fontWeight: p.style?.bold ? 'bold' : undefined,
+                            fontStyle: p.style?.italic ? 'italic' : undefined,
+                            textDecoration: p.style?.underline ? 'underline' : undefined,
+                          }}
+                        >
+                          {renderContentWithMailMerge(p.content)}
+                        </div>
+                      )}
+
+                      {p.type === 'bullet' && (
+                        <div className="flex items-start space-x-2.5">
+                          <span className="text-[#185abd] dark:text-blue-400 font-bold select-none text-base leading-relaxed">•</span>
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addParagraphAfter(idx, 'bullet');
+                              } else if (e.key === 'Backspace' && e.currentTarget.textContent === '') {
+                                e.preventDefault();
+                                deleteParagraph(p.id);
+                              }
+                            }}
+                            className="w-full text-sm leading-relaxed text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
+                          >
+                            {renderContentWithMailMerge(p.content)}
+                          </div>
+                        </div>
+                      )}
+
+                      {p.type === 'number' && (
+                        <div className="flex items-start space-x-2.5">
+                          <span className="text-[#185abd] dark:text-blue-400 font-bold select-none text-sm leading-relaxed">
+                            {idx + 1}.
+                          </span>
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addParagraphAfter(idx, 'number');
+                              } else if (e.key === 'Backspace' && e.currentTarget.textContent === '') {
+                                e.preventDefault();
+                                deleteParagraph(p.id);
+                              }
+                            }}
+                            className="w-full text-sm leading-relaxed text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
+                          >
+                            {renderContentWithMailMerge(p.content)}
+                          </div>
+                        </div>
+                      )}
+
+                      {p.type === 'callout' && (
+                        <div className="p-4 rounded-md border-l-4 border-[#185abd] bg-blue-50/70 dark:bg-blue-900/40 text-blue-950 dark:text-blue-50 flex items-start space-x-3">
+                          <Info className="w-4 h-4 text-[#185abd] dark:text-blue-300 shrink-0 mt-0.5" />
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                            className="w-full text-xs font-semibold leading-relaxed focus:outline-none"
+                          >
+                            {renderContentWithMailMerge(p.content)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Word Data Table */}
+                      {p.type === 'table' && p.tableData && (
+                        <div className="my-4 overflow-x-auto rounded-sm border border-slate-300 dark:border-neutral-700">
+                          <div className="bg-slate-100 dark:bg-neutral-800 px-3 py-1 border-b border-inherit flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300 font-medium select-none">
+                            <span>Table: {p.content}</span>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => addTableRow(p.id)}
+                                className="px-1.5 py-0.5 rounded bg-white dark:bg-neutral-700 hover:bg-slate-200 border border-slate-300 dark:border-neutral-600 text-[10px]"
+                              >
+                                + Row
+                              </button>
+                              <button
+                                onClick={() => addTableCol(p.id)}
+                                className="px-1.5 py-0.5 rounded bg-white dark:bg-neutral-700 hover:bg-slate-200 border border-slate-300 dark:border-neutral-600 text-[10px]"
+                              >
+                                + Column
+                              </button>
+                            </div>
+                          </div>
+                          <table className="w-full text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 dark:bg-neutral-800 border-b border-slate-300 dark:border-neutral-700">
+                                {p.tableData[0]?.map((colHeader, cIdx) => (
+                                  <th key={cIdx} className="p-2.5 text-left font-bold border-r border-inherit last:border-r-0">
+                                    <input
+                                      type="text"
+                                      value={colHeader}
+                                      onChange={(e) => updateTableCell(p.id, 0, cIdx, e.target.value)}
+                                      className="w-full bg-transparent font-bold focus:outline-none"
+                                    />
+                                  </th>
+                                ))}
+                                <th className="w-8 p-1 text-center font-normal text-slate-400">✕</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {p.tableData.slice(1).map((row, rIdx) => (
+                                <tr
+                                  key={rIdx}
+                                  className="border-b border-slate-200 dark:border-neutral-800 last:border-b-0 hover:bg-slate-50/60 dark:hover:bg-neutral-800/40"
+                                >
+                                  {row.map((cell, cIdx) => (
+                                    <td
+                                      key={cIdx}
+                                      className="p-2 border-r border-slate-200 dark:border-neutral-700 last:border-r-0"
+                                    >
+                                      <input
+                                        type="text"
+                                        value={cell}
+                                        onChange={(e) => updateTableCell(p.id, rIdx + 1, cIdx, e.target.value)}
+                                        className="w-full bg-transparent focus:outline-none"
+                                      />
+                                    </td>
+                                  ))}
+                                  <td className="w-8 p-1 text-center">
+                                    <button
+                                      onClick={() => deleteTableRow(p.id, rIdx + 1)}
+                                      className="text-slate-400 hover:text-rose-500 font-bold"
+                                      title="Delete Row"
+                                    >
+                                      ✕
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {p.type === 'image' && (
+                        <div className="my-4 p-3 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900/50 flex flex-col items-center">
+                          {p.imageUrl && (
+                            <img
+                              src={p.imageUrl}
+                              alt="Document visual"
+                              className="max-h-80 object-cover rounded shadow-sm mb-2"
+                            />
+                          )}
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={(e) => updateParagraph(p.id, { content: e.currentTarget.textContent || '' })}
+                            className="text-xs text-center text-slate-500 italic focus:outline-none w-full"
+                          >
+                            {p.content}
+                          </div>
+                        </div>
+                      )}
+
+                      {p.type === 'hr' && (
+                        <div className="my-6 border-b-2 border-slate-200 dark:border-neutral-700" />
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* Document Footer Zone */}
+            <div className="border-t border-slate-200 dark:border-neutral-700 pt-3 mt-12 flex justify-between items-center text-[10px] text-slate-400 select-none relative z-10">
+              <span>Confidential & Proprietary • Anything Office</span>
+              <span className="font-mono">Page 1 of {stats.estimatedPages}</span>
             </div>
           </div>
         </div>
 
-        {/* 3. RIGHT EXPANDABLE ENTERPRISE DRAWER (Comments, Watermark, Citations, Mail Merge) */}
+        {/* 3. ENTERPRISE SIDEBAR DRAWER (Comments, Outline, Citations, Track Changes) */}
         {activeSideDrawer && (
-          <aside
-            className={`w-72 border-l p-4 flex flex-col justify-between shrink-0 select-none text-xs z-30 shadow-xl ${
-              darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-            }`}
-          >
-            {/* Comments Drawer */}
-            {activeSideDrawer === 'comments' && (
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between border-b pb-2 mb-3 dark:border-slate-800">
-                  <div className="flex items-center space-x-1.5 font-bold">
-                    <MessageSquare className="w-4 h-4 text-blue-500" />
-                    <span>Document Comments</span>
-                  </div>
-                  <button onClick={() => setActiveSideDrawer(null)}>
-                    <X className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
+          <div className="w-80 border-l border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0 shadow-2xl z-30 animate-fadeIn">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between font-bold text-xs">
+              <span className="flex items-center space-x-1.5 capitalize">
+                {activeSideDrawer === 'outline' && <ListTree className="w-4 h-4 text-blue-500" />}
+                {activeSideDrawer === 'comments' && <MessageSquare className="w-4 h-4 text-blue-500" />}
+                {activeSideDrawer === 'trackChanges' && <History className="w-4 h-4 text-amber-500" />}
+                {activeSideDrawer === 'citations' && <Bookmark className="w-4 h-4 text-indigo-500" />}
+                <span>{activeSideDrawer} Panel</span>
+              </span>
+              <button
+                onClick={() => setActiveSideDrawer(null)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2 mb-3">
-                  {(data.comments || []).length === 0 ? (
-                    <div className="text-center text-slate-400 text-xs py-8">
-                      Select a paragraph and type a comment below.
+            <div className="flex-1 p-3 overflow-y-auto text-xs space-y-3">
+              {/* Outline Tab */}
+              {activeSideDrawer === 'outline' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Headings ({headings.length})</span>
+                    <button
+                      onClick={insertTableOfContents}
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-semibold text-[11px]"
+                    >
+                      + Insert TOC
+                    </button>
+                  </div>
+                  {headings.map((h, i) => (
+                    <div
+                      key={h.id}
+                      onClick={() => scrollToHeading(h.id)}
+                      className={`cursor-pointer p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 truncate ${
+                        h.level === 1 ? 'font-bold pl-2 text-blue-600 dark:text-blue-400' : h.level === 2 ? 'pl-4 font-medium' : 'pl-6 text-slate-500'
+                      }`}
+                    >
+                      {h.text || `Untitled Heading ${i + 1}`}
                     </div>
-                  ) : (
-                    (data.comments || []).map((c) => (
-                      <div key={c.id} className="p-2.5 rounded-lg border dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs">
-                        <div className="flex justify-between items-center text-[10px] text-slate-400 mb-1">
-                          <span className="font-semibold text-slate-700 dark:text-slate-300">{c.author}</span>
-                          <button onClick={() => deleteComment(c.id)} className="text-slate-400 hover:text-rose-500">
-                            <X className="w-3 h-3" />
+                  ))}
+                </div>
+              )}
+
+              {/* Comments Tab */}
+              {activeSideDrawer === 'comments' && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <textarea
+                      rows={2}
+                      placeholder="Type comment on selected paragraph..."
+                      value={newCommentText}
+                      onChange={(e) => setNewCommentText(e.target.value)}
+                      className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={addComment}
+                      className="w-full py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs"
+                    >
+                      Post Comment
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                    {(data.comments || []).map((c) => (
+                      <div key={c.id} className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                          <span className="font-bold text-slate-700 dark:text-slate-200">{c.author}</span>
+                          <button
+                            onClick={() => deleteComment(c.id)}
+                            className="text-slate-400 hover:text-rose-500"
+                          >
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
-                        <p className="text-slate-800 dark:text-slate-200">{c.text}</p>
+                        <p className="text-slate-800 dark:text-slate-200 text-xs">{c.text}</p>
                       </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="border-t pt-2 dark:border-slate-800">
-                  <textarea
-                    rows={2}
-                    value={newCommentText}
-                    onChange={(e) => setNewCommentText(e.target.value)}
-                    placeholder="Type review comment..."
-                    className="w-full p-2 text-xs rounded border dark:bg-slate-800 dark:border-slate-700 focus:outline-none"
-                  />
-                  <button
-                    onClick={addComment}
-                    disabled={!selectedParagraphId || !newCommentText.trim()}
-                    className="w-full mt-2 py-1.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium text-xs"
-                  >
-                    Post Comment
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Watermark Drawer */}
-            {activeSideDrawer === 'watermark' && (
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between border-b pb-2 mb-3 dark:border-slate-800">
-                  <div className="flex items-center space-x-1.5 font-bold">
-                    <Stamp className="w-4 h-4 text-blue-500" />
-                    <span>Watermark Settings</span>
+                    ))}
                   </div>
-                  <button onClick={() => setActiveSideDrawer(null)}>
-                    <X className="w-4 h-4 text-slate-400" />
-                  </button>
                 </div>
+              )}
 
+              {/* Citations Drawer */}
+              {activeSideDrawer === 'citations' && (
                 <div className="space-y-3">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-500">Watermark Text:</label>
+                  <div className="space-y-2">
                     <input
                       type="text"
-                      value={watermarkInput}
-                      onChange={(e) => setWatermarkInput(e.target.value)}
-                      className="w-full mt-1 p-2 rounded border dark:bg-slate-800 dark:border-slate-700 text-xs uppercase"
+                      placeholder="Author(s)..."
+                      value={citationAuthor}
+                      onChange={(e) => setCitationAuthor(e.target.value)}
+                      className="w-full p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
                     />
+                    <input
+                      type="text"
+                      placeholder="Work Title..."
+                      value={citationTitle}
+                      onChange={(e) => setCitationTitle(e.target.value)}
+                      className="w-full p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
+                    />
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        placeholder="Year"
+                        value={citationYear}
+                        onChange={(e) => setCitationYear(Number(e.target.value))}
+                        className="w-24 p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono"
+                      />
+                      <select
+                        value={citationStyle}
+                        onChange={(e) => setCitationStyle(e.target.value as any)}
+                        className="flex-1 p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
+                      >
+                        <option value="APA">APA 7th</option>
+                        <option value="MLA">MLA 9th</option>
+                        <option value="Chicago">Chicago</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={addCitation}
+                      className="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs"
+                    >
+                      Add Citation Entry
+                    </button>
+                    <button
+                      onClick={insertBibliography}
+                      className="w-full py-1 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-semibold text-xs"
+                    >
+                      Generate Bibliography
+                    </button>
                   </div>
+                </div>
+              )}
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {['CONFIDENTIAL', 'DRAFT', 'URGENT', 'INTERNAL ONLY'].map((preset) => (
+              {/* Watermark Drawer */}
+              {activeSideDrawer === 'watermark' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">Watermark Text</span>
+                    <button
+                      onClick={() =>
+                        onChange({
+                          ...data,
+                          watermark: {
+                            text: watermarkInput,
+                            enabled: !(data.watermark?.enabled),
+                          },
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded text-xs font-bold ${
+                        data.watermark?.enabled ? 'bg-blue-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {data.watermark?.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={watermarkInput}
+                    onChange={(e) => {
+                      setWatermarkInput(e.target.value);
+                      onChange({
+                        ...data,
+                        watermark: {
+                          text: e.target.value,
+                          enabled: true,
+                        },
+                      });
+                    }}
+                    placeholder="CONFIDENTIAL, DRAFT, INTERNAL..."
+                    className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200"
+                  />
+                  <div className="flex items-center space-x-2 pt-2">
+                    {['CONFIDENTIAL', 'DRAFT', 'URGENT', 'DO NOT COPY'].map((preset) => (
                       <button
                         key={preset}
-                        onClick={() => setWatermarkInput(preset)}
-                        className="px-2 py-1 rounded text-[10px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200"
+                        onClick={() => {
+                          setWatermarkInput(preset);
+                          onChange({
+                            ...data,
+                            watermark: { text: preset, enabled: true },
+                          });
+                        }}
+                        className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[10px] font-semibold"
                       >
                         {preset}
                       </button>
                     ))}
                   </div>
-
-                  <button
-                    onClick={() =>
-                      onChange({
-                        ...data,
-                        watermark: {
-                          text: watermarkInput,
-                          enabled: !data.watermark?.enabled,
-                        },
-                      })
-                    }
-                    className={`w-full py-1.5 rounded font-medium text-xs ${
-                      data.watermark?.enabled ? 'bg-rose-600 text-white' : 'bg-blue-600 text-white'
-                    }`}
-                  >
-                    {data.watermark?.enabled ? 'Remove Watermark' : 'Apply Watermark'}
-                  </button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Citations & Bibliography Drawer */}
-            {activeSideDrawer === 'citations' && (
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between border-b pb-2 mb-3 dark:border-slate-800">
-                  <div className="flex items-center space-x-1.5 font-bold">
-                    <Bookmark className="w-4 h-4 text-indigo-500" />
-                    <span>Citations & References</span>
+              {/* Mail Merge Drawer */}
+              {activeSideDrawer === 'mailMerge' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">Mail Merge Preview</span>
+                    <button
+                      onClick={() => {
+                        const enabled = !data.mailMerge?.enabled;
+                        onChange({
+                          ...data,
+                          mailMerge: {
+                            enabled,
+                            variables: ['First_Name', 'Company', 'Date', 'Amount'],
+                            records: sampleMailMergeRecords,
+                            activeRecordIndex: 0,
+                          },
+                        });
+                      }}
+                      className={`px-2 py-0.5 rounded text-xs font-bold ${
+                        data.mailMerge?.enabled ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {data.mailMerge?.enabled ? 'Active' : 'Enable'}
+                    </button>
                   </div>
-                  <button onClick={() => setActiveSideDrawer(null)}>
-                    <X className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-
-                <div className="space-y-2 mb-3 flex-1 overflow-y-auto">
-                  <select
-                    value={citationStyle}
-                    onChange={(e) => setCitationStyle(e.target.value as any)}
-                    className="w-full p-1.5 text-xs rounded border dark:bg-slate-800 dark:border-slate-700"
-                  >
-                    <option value="APA">APA Style (7th Edition)</option>
-                    <option value="MLA">MLA Style (9th Edition)</option>
-                    <option value="Chicago">Chicago Manual of Style</option>
-                  </select>
-
-                  <input
-                    type="text"
-                    value={citationAuthor}
-                    onChange={(e) => setCitationAuthor(e.target.value)}
-                    placeholder="Author (e.g. Porter, M. E.)"
-                    className="w-full p-1.5 text-xs rounded border dark:bg-slate-800 dark:border-slate-700"
-                  />
-                  <input
-                    type="text"
-                    value={citationTitle}
-                    onChange={(e) => setCitationTitle(e.target.value)}
-                    placeholder="Title of Work..."
-                    className="w-full p-1.5 text-xs rounded border dark:bg-slate-800 dark:border-slate-700"
-                  />
-                  <input
-                    type="number"
-                    value={citationYear}
-                    onChange={(e) => setCitationYear(Number(e.target.value))}
-                    className="w-full p-1.5 text-xs rounded border dark:bg-slate-800 dark:border-slate-700"
-                  />
-
-                  <button
-                    onClick={addCitation}
-                    className="w-full py-1.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs"
-                  >
-                    + Add Citation
-                  </button>
-
-                  <div className="border-t pt-2 dark:border-slate-800">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      Saved Citations ({data.citations?.length || 0})
-                    </div>
-                    {(data.citations || []).map((c) => (
-                      <div key={c.id} className="p-1.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] mb-1">
-                        <span className="font-semibold">{c.author}</span> ({c.year}). {c.title}
+                  <p className="text-[11px] text-slate-500">
+                    Use <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">{"{{First_Name}}"}</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">{"{{Company}}"}</code> in text.
+                  </p>
+                  <div className="space-y-1">
+                    {sampleMailMergeRecords.map((rec, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => {
+                          if (data.mailMerge) {
+                            onChange({
+                              ...data,
+                              mailMerge: { ...data.mailMerge, activeRecordIndex: idx, enabled: true },
+                            });
+                          }
+                        }}
+                        className={`p-2 rounded border cursor-pointer text-xs ${
+                          (data.mailMerge?.activeRecordIndex || 0) === idx
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-200 font-bold'
+                            : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                        }`}
+                      >
+                        <div>{rec.First_Name} • {rec.Company}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">{rec.Date} — {rec.Amount}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <button
-                  onClick={insertBibliography}
-                  disabled={(data.citations || []).length === 0}
-                  className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-medium text-xs"
-                >
-                  Insert Bibliography Section
-                </button>
-              </div>
-            )}
-
-            {/* Mail Merge Drawer */}
-            {activeSideDrawer === 'mailMerge' && (
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between border-b pb-2 mb-3 dark:border-slate-800">
-                  <div className="flex items-center space-x-1.5 font-bold">
-                    <Users className="w-4 h-4 text-purple-500" />
-                    <span>Mail Merge Assistant</span>
-                  </div>
-                  <button onClick={() => setActiveSideDrawer(null)}>
-                    <X className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="text-xs text-slate-500">
-                    Use placeholders in your text like <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded font-mono">{'{{First_Name}}'}</code>, <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded font-mono">{'{{Company}}'}</code>, <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded font-mono">{'{{Amount}}'}</code>.
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      onChange({
-                        ...data,
-                        mailMerge: {
-                          enabled: !data.mailMerge?.enabled,
-                          variables: ['First_Name', 'Company', 'Date', 'Amount'],
-                          records: sampleMailMergeRecords,
-                          activeRecordIndex: 0,
-                        },
-                      })
-                    }
-                    className={`w-full py-1.5 rounded font-medium text-xs ${
-                      data.mailMerge?.enabled ? 'bg-purple-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
-                    }`}
-                  >
-                    Preview Mail Merge {data.mailMerge?.enabled ? 'ON' : 'OFF'}
-                  </button>
-
-                  {data.mailMerge?.enabled && (
-                    <div className="p-3 rounded-lg border dark:border-slate-800 bg-purple-50/50 dark:bg-purple-950/20 space-y-2">
-                      <div className="text-[10px] font-bold uppercase text-purple-600 dark:text-purple-400">
-                        Active Record ({((data.mailMerge?.activeRecordIndex || 0) + 1)} of {sampleMailMergeRecords.length})
-                      </div>
-                      <div className="font-mono text-[11px] space-y-0.5">
-                        <div>Name: {activeRecord.First_Name}</div>
-                        <div>Company: {activeRecord.Company}</div>
-                        <div>Amount: {activeRecord.Amount}</div>
-                      </div>
-
-                      <div className="flex justify-between pt-1">
-                        <button
-                          onClick={() =>
-                            onChange({
-                              ...data,
-                              mailMerge: {
-                                ...data.mailMerge!,
-                                activeRecordIndex: Math.max(0, (data.mailMerge?.activeRecordIndex || 0) - 1),
-                              },
-                            })
-                          }
-                          className="px-2 py-0.5 rounded border text-[10px]"
-                        >
-                          Previous
-                        </button>
-                        <button
-                          onClick={() =>
-                            onChange({
-                              ...data,
-                              mailMerge: {
-                                ...data.mailMerge!,
-                                activeRecordIndex: Math.min(
-                                  sampleMailMergeRecords.length - 1,
-                                  (data.mailMerge?.activeRecordIndex || 0) + 1
-                                ),
-                              },
-                            })
-                          }
-                          className="px-2 py-0.5 rounded border text-[10px]"
-                        >
-                          Next Record
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Document Outline / Headings Navigation Drawer */}
-            {activeSideDrawer === 'outline' && (
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between border-b pb-2 mb-3 dark:border-slate-800">
-                  <div className="flex items-center space-x-1.5 font-bold">
-                    <ListTree className="w-4 h-4 text-blue-500" />
-                    <span>Document Outline</span>
-                  </div>
-                  <button onClick={() => setActiveSideDrawer(null)}>
-                    <X className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-
-                <div className="text-xs text-slate-500 mb-2">
-                  Headings hierarchy for rapid section navigation:
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-1 mb-3">
-                  {headings.length === 0 ? (
-                    <div className="text-center text-slate-400 text-xs py-8">
-                      No Headings found. Add Heading 1, 2, or 3 blocks to see outline tree.
-                    </div>
-                  ) : (
-                    headings.map((h, i) => (
-                      <div
-                        key={h.id}
-                        onClick={() => scrollToHeading(h.id)}
-                        className={`p-1.5 rounded cursor-pointer transition-colors text-xs flex items-center space-x-1.5 ${
-                          h.level === 1
-                            ? 'font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
-                            : h.level === 2
-                            ? 'font-semibold text-slate-700 dark:text-slate-200 pl-4 hover:bg-slate-100 dark:hover:bg-slate-800'
-                            : 'text-slate-500 dark:text-slate-400 pl-7 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                        <span className="truncate">{h.text || `Heading ${i + 1}`}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <button
-                  onClick={insertTableOfContents}
-                  className="w-full py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-xs"
-                >
-                  Insert Table of Contents
-                </button>
-              </div>
-            )}
-          </aside>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* 4. AUTHENTIC MICROSOFT WORD STATUS BAR */}
+      {/* 4. REAL-TIME WORD DOCUMENT STATUS BAR */}
       <footer
-        className={`h-6 border-t select-none px-3 flex items-center justify-between text-[11px] shrink-0 transition-colors ${
-          darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-[#0078d4] text-white border-blue-700'
+        className={`h-6 border-t px-4 flex items-center justify-between text-[11px] select-none shrink-0 transition-colors ${
+          darkMode ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-200 border-slate-300 text-slate-600'
         }`}
       >
-        <div className="flex items-center space-x-3">
-          <span>Page 1 of {Math.max(1, Math.ceil(data.paragraphs.length / 5))}</span>
+        <div className="flex items-center space-x-4">
+          <span className="font-semibold text-blue-600 dark:text-blue-400">Microsoft Word Parity</span>
           <span>•</span>
-          <span>{stats.words.toLocaleString()} words</span>
+          <span>Page 1 of {stats.estimatedPages}</span>
           <span>•</span>
-          <span>{stats.characters.toLocaleString()} characters</span>
+          <span>{stats.words} Words</span>
+          <span>•</span>
+          <span>{stats.characters} Characters</span>
           <span>•</span>
           <span>~{stats.readingMinutes} min read</span>
-          <span className="hidden md:inline flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-emerald-400 inline mr-1" />
-            <span>Accessibility: Good to go</span>
-          </span>
         </div>
 
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-1">
-            <button title="Read Mode" className="p-0.5 hover:bg-white/10 rounded">
-              <BookOpen className="w-3.5 h-3.5" />
-            </button>
-            <button title="Print Layout" className="p-0.5 bg-white/20 rounded">
-              <Layout className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="flex items-center space-x-1.5 font-mono text-[10px]">
-            <button onClick={() => setZoomLevel((z) => Math.max(50, z - 10))} title="Zoom Out">
-              <ZoomOut className="w-3 h-3" />
-            </button>
-            <span>{zoomLevel}%</span>
-            <button onClick={() => setZoomLevel((z) => Math.min(200, z + 10))} title="Zoom In">
-              <ZoomIn className="w-3 h-3" />
-            </button>
-          </div>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setZoomLevel((prev) => Math.max(50, prev - 10))}
+            className="p-0.5 rounded hover:bg-slate-300 dark:hover:bg-slate-800"
+            title="Zoom Out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <span className="font-mono text-[10px] w-9 text-center">{zoomLevel}%</span>
+          <button
+            onClick={() => setZoomLevel((prev) => Math.min(200, prev + 10))}
+            className="p-0.5 rounded hover:bg-slate-300 dark:hover:bg-slate-800"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
         </div>
       </footer>
     </div>

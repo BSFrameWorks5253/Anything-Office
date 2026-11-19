@@ -525,13 +525,46 @@ export const SlidesEditor: React.FC<SlidesEditorProps> = ({
         if (e.key === 'F5') {
           e.preventDefault();
           setIsPresenting(true);
+        } else if (selectedElementId) {
+          const activeTag = document.activeElement?.tagName.toLowerCase();
+          const isInputFocused = activeTag === 'input' || activeTag === 'textarea';
+
+          if (!isInputFocused) {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+              e.preventDefault();
+              deleteElement(selectedElementId);
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+              e.preventDefault();
+              duplicateElement(selectedElementId);
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const delta = e.shiftKey ? 5 : 1;
+              const target = activeSlide.elements.find((el) => el.id === selectedElementId);
+              if (target) updateElement(selectedElementId, { y: Math.max(0, target.y - delta) });
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const delta = e.shiftKey ? 5 : 1;
+              const target = activeSlide.elements.find((el) => el.id === selectedElementId);
+              if (target) updateElement(selectedElementId, { y: Math.min(95, target.y + delta) });
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              const delta = e.shiftKey ? 5 : 1;
+              const target = activeSlide.elements.find((el) => el.id === selectedElementId);
+              if (target) updateElement(selectedElementId, { x: Math.max(0, target.x - delta) });
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              const delta = e.shiftKey ? 5 : 1;
+              const target = activeSlide.elements.find((el) => el.id === selectedElementId);
+              if (target) updateElement(selectedElementId, { x: Math.min(95, target.x + delta) });
+            }
+          }
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPresenting, activeSlideIndex, data.slides.length, setIsPresenting]);
+  }, [isPresenting, activeSlideIndex, data.slides.length, setIsPresenting, selectedElementId, activeSlide.elements]);
 
   const updateActiveSlide = (updates: Partial<SlideData>) => {
     const newSlides = data.slides.map((s, idx) =>
@@ -1335,6 +1368,137 @@ export const SlidesEditor: React.FC<SlidesEditorProps> = ({
               {data.aspectRatio || '16:9'}
             </button>
           </div>
+
+          {/* Contextual PowerPoint Formatting Bar when an element is selected */}
+          {selectedElement && (
+            <div className="mb-3 flex items-center space-x-2 bg-white dark:bg-slate-900 border border-orange-400/80 px-3 py-1 rounded-full shadow-lg text-xs animate-fadeIn select-none">
+              <span className="font-bold text-orange-600 dark:text-orange-400 text-[11px] capitalize">
+                {selectedElement.type} Selected:
+              </span>
+
+              {/* Font Size controls */}
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() =>
+                    updateElement(selectedElement.id, {
+                      style: {
+                        ...selectedElement.style,
+                        fontSize: Math.max(12, (selectedElement.style?.fontSize || 24) - 2),
+                      },
+                    })
+                  }
+                  className="px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 font-mono font-bold"
+                  title="Decrease Font Size"
+                >
+                  A-
+                </button>
+                <span className="font-mono text-[11px] w-6 text-center">
+                  {selectedElement.style?.fontSize || 24}
+                </span>
+                <button
+                  onClick={() =>
+                    updateElement(selectedElement.id, {
+                      style: {
+                        ...selectedElement.style,
+                        fontSize: Math.min(72, (selectedElement.style?.fontSize || 24) + 2),
+                      },
+                    })
+                  }
+                  className="px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 font-mono font-bold"
+                  title="Increase Font Size"
+                >
+                  A+
+                </button>
+              </div>
+
+              <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+
+              {/* Bold Toggle */}
+              <button
+                onClick={() =>
+                  updateElement(selectedElement.id, {
+                    style: {
+                      ...selectedElement.style,
+                      bold: !selectedElement.style?.bold,
+                    },
+                  })
+                }
+                className={`px-2 py-0.5 rounded font-bold ${
+                  selectedElement.style?.bold ? 'bg-orange-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+                title="Toggle Bold"
+              >
+                B
+              </button>
+
+              {/* Alignment */}
+              <button
+                onClick={() => {
+                  const cur = selectedElement.style?.align || 'left';
+                  const next = cur === 'left' ? 'center' : cur === 'center' ? 'right' : 'left';
+                  updateElement(selectedElement.id, {
+                    style: { ...selectedElement.style, align: next },
+                  });
+                }}
+                className="px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 capitalize text-[11px]"
+                title="Cycle Text Alignment"
+              >
+                {selectedElement.style?.align || 'Left'}
+              </button>
+
+              <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+
+              {/* Z-Ordering */}
+              <button
+                onClick={() => bringForward(selectedElement.id)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px]"
+                title="Bring Forward"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => sendBackward(selectedElement.id)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px]"
+                title="Send Backward"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => bringToFront(selectedElement.id)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px]"
+                title="Bring to Front"
+              >
+                <ArrowUpToLine className="w-3.5 h-3.5 text-blue-500" />
+              </button>
+              <button
+                onClick={() => sendToBack(selectedElement.id)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px]"
+                title="Send to Back"
+              >
+                <ArrowDownToLine className="w-3.5 h-3.5 text-blue-500" />
+              </button>
+
+              <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+
+              {/* Duplicate & Delete */}
+              <button
+                onClick={() => duplicateElement(selectedElement.id)}
+                className="flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
+                title="Duplicate Element (Ctrl+D)"
+              >
+                <Copy className="w-3 h-3 text-emerald-500" />
+                <span>Duplicate</span>
+              </button>
+              <button
+                onClick={() => deleteElement(selectedElement.id)}
+                className="flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-600 font-medium"
+                title="Delete Element (Delete)"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Delete</span>
+              </button>
+            </div>
+          )}
 
           {/* Slide Canvas */}
           <div
